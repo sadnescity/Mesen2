@@ -105,6 +105,9 @@
 		<AvaloniaNameGeneratorIsEnabled>False</AvaloniaNameGeneratorIsEnabled>
 	</PropertyGroup>
 	<ItemGroup>
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	</ItemGroup>
+	<ItemGroup>
 		<TrimmerRootAssembly Include="Mesen" />
 		<TrimmerRootAssembly Include="AvaloniaEdit" />
 		<TrimmerRootAssembly Include="Dock.Avalonia" />
@@ -125,6 +128,7 @@
     <PackageReference Include="Dock.Model.Mvvm" Version="12.1.0" />
     <PackageReference Include="Dotnet.Bundle" Version="*" />
     <PackageReference Include="ELFSharp" Version="2.17.3" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.*" />
    </ItemGroup>
   <ItemGroup>
     <Compile Update="Controls\ButtonWithIcon.axaml.cs">
@@ -695,4 +699,19 @@
 		<RemoveDir Directories="$(OutDir)Dependencies" />
 		<Delete Files="$(ProjectDir)Dependencies.zip" />
 	</Target>
+
+	<!-- Copy MCP DLLs and dependencies into the .app bundle (Dotnet.Bundle misses NuGet DLLs from ASP.NET Core framework references) -->
+	<Target Name="CopyMcpDllsToBundle" AfterTargets="BundleApp" Condition="'$(RuntimeIdentifier)'=='osx-x64' Or '$(RuntimeIdentifier)'=='osx-arm64'">
+		<PropertyGroup>
+			<BundleMacOSDir>$(PublishDir)$(CFBundleName).app/Contents/MacOS/</BundleMacOSDir>
+		</PropertyGroup>
+		<ItemGroup>
+			<McpDlls Include="$(OutDir)ModelContextProtocol*.dll" />
+			<McpDlls Include="$(OutDir)Microsoft.Extensions.*.dll" />
+			<McpDlls Include="$(OutDir)System.Net.ServerSentEvents.dll" />
+		</ItemGroup>
+		<Copy SourceFiles="@(McpDlls)" DestinationFolder="$(BundleMacOSDir)" SkipUnchangedFiles="true" />
+		<Message Importance="high" Text="Copied %(McpDlls.Filename)%(McpDlls.Extension) to .app bundle" />
+	</Target>
+
 </Project>
