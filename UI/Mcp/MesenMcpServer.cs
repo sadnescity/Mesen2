@@ -40,6 +40,8 @@ namespace Mesen.Mcp
 
 				builder.WebHost.UseUrls($"http://localhost:{port}");
 
+				System.Reflection.Assembly mcpAssembly = typeof(MesenMcpServer).Assembly;
+
 				builder.Services
 					.AddMcpServer(options => {
 						options.ServerInfo = new() {
@@ -48,9 +50,9 @@ namespace Mesen.Mcp
 						};
 					})
 					.WithHttpTransport()
-					.WithToolsFromAssembly()
-					.WithPromptsFromAssembly()
-					.WithResourcesFromAssembly();
+					.WithToolsFromAssembly(mcpAssembly)
+					.WithPromptsFromAssembly(mcpAssembly)
+					.WithResourcesFromAssembly(mcpAssembly);
 
 				_app = builder.Build();
 				_app.MapMcp("/mcp");
