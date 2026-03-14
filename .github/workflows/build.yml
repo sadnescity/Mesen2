@@ -1,6 +1,10 @@
 name: Build Mesen
 
-on: [push]
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - mcp
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
@@ -323,7 +327,7 @@ jobs:
           gh release create latest \
             --title "Latest Build ($SHORT_SHA)" \
             --notes "Automated build from commit ${{ github.sha }} on $(date -u +%Y-%m-%d)" \
-            --prerelease \
+            \
             release/*
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
