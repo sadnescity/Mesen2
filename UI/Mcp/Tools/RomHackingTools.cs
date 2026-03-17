@@ -1,4 +1,5 @@
 using Mesen.Interop;
+using Mesen.Mcp.Consoles;
 using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
@@ -34,65 +35,20 @@ namespace Mesen.Mcp.Tools
 		}
 
 		[McpServerTool(Name = "mesen_get_rom_header", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
-		 Description("Get parsed ROM header information. Currently only supported for NES ROMs (iNes/NES 2.0). Returns structured header fields. For other consoles, use mesen_read_memory to read the internal header from PRG ROM directly.")]
+		 Description("Get parsed ROM header information. Supported for NES (iNes/NES 2.0) and SNES ROMs. Returns structured header fields. For unsupported consoles, use mesen_read_memory to read the internal header from PRG ROM directly.")]
 		public static string GetRomHeader()
 		{
 			McpToolHelper.EnsureDebuggerReady();
 
 			RomInfo romInfo = EmuApi.GetRomInfo();
-			if(romInfo.ConsoleType != ConsoleType.Nes) {
-				throw new McpException("ROM header parsing is currently only supported for NES. For " + romInfo.ConsoleType + ", use mesen_read_memory to read the internal header from PRG ROM.");
+			IConsoleHandler handler = ConsoleHandlerFactory.GetHandler(romInfo.ConsoleType);
+
+			string? result = handler.GetRomHeader();
+			if(result == null) {
+				throw new McpException("ROM header parsing is not supported for " + romInfo.ConsoleType + ". Use mesen_read_memory to read the internal header from PRG ROM.");
 			}
 
-			byte[] header = DebugApi.GetRomHeader();
-			if(header.Length < 16 || header[0] != 0x4E || header[1] != 0x45 || header[2] != 0x53 || header[3] != 0x1A) {
-				throw new McpException("Invalid or missing NES header");
-			}
-
-			// Parse iNes/NES 2.0 header
-			bool isNes2 = (header[7] & 0x0C) == 0x08;
-			int mapper = isNes2
-				? ((header[8] & 0x0F) << 8) | (header[7] & 0xF0) | (header[6] >> 4)
-				: (header[7] & 0xF0) | (header[6] >> 4);
-			int subMapper = isNes2 ? (header[8] & 0xF0) >> 4 : 0;
-
-			int prgSize;
-			int chrSize;
-			if(isNes2) {
-				prgSize = ((header[9] & 0x0F) == 0x0F)
-					? (int)(Math.Pow(2, header[4] >> 2) * ((header[4] & 0x03) * 2 + 1))
-					: (((header[9] & 0x0F) << 8) | header[4]) * 16384;
-				chrSize = ((header[9] & 0xF0) == 0xF0)
-					? (int)(Math.Pow(2, header[5] >> 2) * ((header[5] & 0x03) * 2 + 1))
-					: (((header[9] & 0xF0) >> 4 << 8) | header[5]) * 8192;
-			} else {
-				prgSize = header[4] * 16384;
-				chrSize = header[5] * 8192;
-			}
-
-			string mirroring = (header[6] & 0x08) != 0 ? "FourScreen"
-				: (header[6] & 0x01) != 0 ? "Vertical" : "Horizontal";
-
-			// Build raw bytes string (just the 16-byte header)
-			StringBuilder raw = new();
-			for(int i = 0; i < 16 && i < header.Length; i++) {
-				if(i > 0) raw.Append(' ');
-				raw.Append(header[i].ToString("X2"));
-			}
-
-			return McpToolHelper.Serialize(new NesRomHeaderResponse {
-				Format = isNes2 ? "NES 2.0" : "iNes",
-				Mapper = mapper,
-				SubMapper = subMapper > 0 ? subMapper : null,
-				PrgRomSize = prgSize,
-				PrgRomSizeKB = prgSize / 1024,
-				ChrRomSize = chrSize,
-				ChrRomSizeKB = chrSize / 1024,
-				Mirroring = mirroring,
-				Battery = (header[6] & 0x02) != 0,
-				Trainer = (header[6] & 0x04) != 0,
-				RawBytes = raw.ToString()
-			});
+			return result;
 		}
 
 		[McpServerTool(Name = "mesen_get_palette", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description("Get the palette colors for the current system.")]

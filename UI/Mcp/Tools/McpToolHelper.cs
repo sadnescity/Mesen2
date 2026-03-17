@@ -80,6 +80,20 @@ namespace Mesen.Mcp.Tools
 			}
 		}
 
+		public static string FormatFlags6502(byte ps)
+		{
+			return string.Concat(
+				(ps & 0x80) != 0 ? "N" : "n",
+				(ps & 0x40) != 0 ? "V" : "v",
+				"-",
+				(ps & 0x10) != 0 ? "B" : "b",
+				(ps & 0x08) != 0 ? "D" : "d",
+				(ps & 0x04) != 0 ? "I" : "i",
+				(ps & 0x02) != 0 ? "Z" : "z",
+				(ps & 0x01) != 0 ? "C" : "c"
+			);
+		}
+
 		public static bool TryParseValue(string value, out byte result)
 		{
 			value = value.Trim();
