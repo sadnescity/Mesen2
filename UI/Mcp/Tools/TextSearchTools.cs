@@ -1,4 +1,5 @@
 using Mesen.Interop;
+using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -11,7 +12,7 @@ using System.Text;
 namespace Mesen.Mcp.Tools
 {
 	[McpServerToolType]
-	public static class TextSearchTools
+	public class TextSearchTools
 	{
 		[McpServerTool(Name = "mesen_relative_search", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
 		 Description("Perform a relative search in memory. Finds text by matching the *differences* between consecutive bytes against the search string, regardless of encoding. This is the standard ROM hacking technique to discover unknown character encodings. Returns candidate addresses and the inferred base value for the first character.")]
@@ -45,7 +46,7 @@ namespace Mesen.Mcp.Tools
 
 			byte[] memory = DebugApi.GetMemoryValues(memType, start, end);
 
-			List<object> matches = new();
+			List<RelativeSearchMatchEntry> matches = new();
 			for(int offset = 0; offset <= memory.Length - searchText.Length && matches.Count < maxResults; offset++) {
 				bool found = true;
 				for(int i = 0; i < signature.Length; i++) {
@@ -66,21 +67,21 @@ namespace Mesen.Mcp.Tools
 						inferredTable["$" + memory[offset + i].ToString("X2")] = searchText[i].ToString();
 					}
 
-					matches.Add(new {
-						address = "$" + (start + offset).ToString("X4"),
-						firstByte = "$" + firstByte.ToString("X2"),
-						baseOffset = baseOffset,
-						inferredTable = inferredTable
+					matches.Add(new RelativeSearchMatchEntry {
+						Address = "$" + (start + offset).ToString("X4"),
+						FirstByte = "$" + firstByte.ToString("X2"),
+						BaseOffset = baseOffset,
+						InferredTable = inferredTable
 					});
 				}
 			}
 
-			return McpToolHelper.Serialize(new {
-				searchText = searchText,
-				signatureDescription = string.Join(", ", signature.Select(d => (d >= 0 ? "+" : "") + d)),
-				matchCount = matches.Count,
-				matches = matches,
-				tip = matches.Count > 20
+			return McpToolHelper.Serialize(new RelativeSearchResponse {
+				SearchText = searchText,
+				SignatureDescription = string.Join(", ", signature.Select(d => (d >= 0 ? "+" : "") + d)),
+				MatchCount = matches.Count,
+				Matches = matches,
+				Tip = matches.Count > 20
 					? "Too many results. Use a longer search string (6+ chars) or specify a narrower address range."
 					: matches.Count == 0
 						? "No matches. Try: 1) different case (all UPPER or all lower), 2) the text may use DTE/MTE compression, 3) try a different memory type."
@@ -123,13 +124,13 @@ namespace Mesen.Mcp.Tools
 				_currentTblMaxKeyLen = maxKeyLength;
 			}
 
-			return McpToolHelper.Serialize(new {
-				success = true,
-				source = isFile ? tblPathOrContent : "(inline content)",
-				entryCount = byteToChar.Count,
-				maxByteSequenceLength = maxKeyLength,
-				sampleEntries = byteToChar.Take(20).Select(kv => kv.Key + " = " + kv.Value).ToList(),
-				parseErrors = errors
+			return McpToolHelper.Serialize(new LoadTblResponse {
+				Success = true,
+				Source = isFile ? tblPathOrContent : "(inline content)",
+				EntryCount = byteToChar.Count,
+				MaxByteSequenceLength = maxKeyLength,
+				SampleEntries = byteToChar.Take(20).Select(kv => kv.Key + " = " + kv.Value).ToList(),
+				ParseErrors = errors
 			});
 		}
 
@@ -208,11 +209,11 @@ namespace Mesen.Mcp.Tools
 				}
 			}
 
-			return McpToolHelper.Serialize(new {
-				searchText = text,
-				encodedPattern = string.Join(" ", pattern.Select(b => b.ToString("X2"))),
-				matchCount = matchAddresses.Count,
-				addresses = matchAddresses
+			return McpToolHelper.Serialize(new SearchTextResponse {
+				SearchText = text,
+				EncodedPattern = string.Join(" ", pattern.Select(b => b.ToString("X2"))),
+				MatchCount = matchAddresses.Count,
+				Addresses = matchAddresses
 			});
 		}
 
@@ -292,11 +293,11 @@ namespace Mesen.Mcp.Tools
 				bytesConsumed = pos;
 			}
 
-			return McpToolHelper.Serialize(new {
-				startAddress = "$" + addr.ToString("X4"),
-				bytesConsumed = bytesConsumed,
-				decodedText = decoded.ToString(),
-				rawHex = hexUsed.ToString().Trim()
+			return McpToolHelper.Serialize(new DecodeTextResponse {
+				StartAddress = "$" + addr.ToString("X4"),
+				BytesConsumed = bytesConsumed,
+				DecodedText = decoded.ToString(),
+				RawHex = hexUsed.ToString().Trim()
 			});
 		}
 
@@ -308,11 +309,11 @@ namespace Mesen.Mcp.Tools
 				throw new McpException("No TBL loaded");
 			}
 
-			return McpToolHelper.Serialize(new {
-				loaded = true,
-				entryCount = _currentTbl.Count,
-				maxByteSequenceLength = _currentTblMaxKeyLen,
-				mappings = _currentTbl.Select(kv => new { hex = kv.Key, character = kv.Value }).ToList()
+			return McpToolHelper.Serialize(new TblInfoResponse {
+				Loaded = true,
+				EntryCount = _currentTbl.Count,
+				MaxByteSequenceLength = _currentTblMaxKeyLen,
+				Mappings = _currentTbl.Select(kv => new TblMappingEntry { Hex = kv.Key, Character = kv.Value }).ToList()
 			});
 		}
 

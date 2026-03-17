@@ -5,7 +5,7 @@ using System.ComponentModel;
 namespace Mesen.Mcp
 {
 	[McpServerPromptType]
-	public static class MesenMcpPrompts
+	public class MesenMcpPrompts
 	{
 		[McpServerPrompt, Description("Guide for finding and modifying text in a ROM using relative search and TBL tables.")]
 		public static string FindGameText(

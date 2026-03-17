@@ -9,7 +9,7 @@ using System.Text;
 namespace Mesen.Mcp
 {
 	[McpServerResourceType]
-	public static class MesenMcpResources
+	public class MesenMcpResources
 	{
 		[McpServerResource(UriTemplate = "mesen://memory-map/{consoleType}", Name = "Console Memory Map")]
 		[Description("Get the memory map documentation for a specific console (NES, SNES, GB, GBA, PCE, SMS, WS)")]

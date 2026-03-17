@@ -1,5 +1,6 @@
 using Mesen.Config;
 using Mesen.Interop;
+using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -9,7 +10,7 @@ using System.ComponentModel;
 namespace Mesen.Mcp.Tools
 {
 	[McpServerToolType]
-	public static class InputTools
+	public class InputTools
 	{
 		[McpServerTool(Name = "mesen_key_state", ReadOnly = false, Destructive = false, OpenWorld = false),
 		 Description("Control keyboard key state. Use 'set' to press/release a key, 'reset' to release all keys, or 'get_pressed' to list currently pressed keys.")]
@@ -21,28 +22,28 @@ namespace Mesen.Mcp.Tools
 			switch(action.ToLowerInvariant()) {
 				case "set":
 					InputApi.SetKeyState((UInt16)scanCode, pressed);
-					return McpToolHelper.Serialize(new {
-						success = true,
-						scanCode = scanCode,
-						pressed = pressed
+					return McpToolHelper.Serialize(new KeySetResponse {
+						Success = true,
+						ScanCode = scanCode,
+						Pressed = pressed
 					});
 
 				case "reset":
 					InputApi.ResetKeyState();
-					return McpToolHelper.Serialize(new { success = true });
+					return McpToolHelper.Serialize(new SuccessResponse { Success = true });
 
 				case "get_pressed":
 					List<UInt16> keys = InputApi.GetPressedKeys();
-					List<object> result = new();
+					List<KeyEntry> result = new();
 					foreach(UInt16 key in keys) {
-						result.Add(new {
-							scanCode = (int)key,
-							keyName = InputApi.GetKeyName(key)
+						result.Add(new KeyEntry {
+							ScanCode = (int)key,
+							KeyName = InputApi.GetKeyName(key)
 						});
 					}
-					return McpToolHelper.Serialize(new {
-						count = result.Count,
-						keys = result
+					return McpToolHelper.Serialize(new PressedKeysResponse {
+						Count = result.Count,
+						Keys = result
 					});
 
 				default:
@@ -61,15 +62,15 @@ namespace Mesen.Mcp.Tools
 				if(code == 0) {
 					throw new McpException("Key not found: " + keyName);
 				}
-				return McpToolHelper.Serialize(new {
-					keyName = keyName,
-					scanCode = (int)code
+				return McpToolHelper.Serialize(new KeyInfoResponse {
+					KeyName = keyName,
+					ScanCode = (int)code
 				});
 			} else if(scanCode != null) {
 				string name = InputApi.GetKeyName((UInt16)scanCode.Value);
-				return McpToolHelper.Serialize(new {
-					scanCode = scanCode.Value,
-					keyName = name
+				return McpToolHelper.Serialize(new KeyInfoResponse {
+					ScanCode = scanCode.Value,
+					KeyName = name
 				});
 			} else {
 				throw new McpException("Provide either scanCode or keyName.");
@@ -86,20 +87,20 @@ namespace Mesen.Mcp.Tools
 			switch(mode.ToLowerInvariant()) {
 				case "relative":
 					InputApi.SetMouseMovement((Int16)x, (Int16)y);
-					return McpToolHelper.Serialize(new {
-						success = true,
-						mode = "relative",
-						x = x,
-						y = y
+					return McpToolHelper.Serialize(new MouseResponse {
+						Success = true,
+						Mode = "relative",
+						X = x,
+						Y = y
 					});
 
 				case "absolute":
 					InputApi.SetMousePosition(x, y);
-					return McpToolHelper.Serialize(new {
-						success = true,
-						mode = "absolute",
-						x = x,
-						y = y
+					return McpToolHelper.Serialize(new MouseResponse {
+						Success = true,
+						Mode = "absolute",
+						X = x,
+						Y = y
 					});
 
 				default:
@@ -119,8 +120,8 @@ namespace Mesen.Mcp.Tools
 			switch(action.ToLowerInvariant()) {
 				case "list":
 					List<int> indexes = DebugApi.GetAvailableInputOverrides();
-					return McpToolHelper.Serialize(new {
-						availablePorts = indexes
+					return McpToolHelper.Serialize(new AvailablePortsResponse {
+						AvailablePorts = indexes
 					});
 
 				case "set":
@@ -150,10 +151,10 @@ namespace Mesen.Mcp.Tools
 					}
 
 					DebugApi.SetInputOverrides((UInt32)port, state);
-					return McpToolHelper.Serialize(new {
-						success = true,
-						port = port,
-						buttons = buttons
+					return McpToolHelper.Serialize(new InputOverrideResponse {
+						Success = true,
+						Port = port,
+						Buttons = buttons
 					});
 
 				default:
@@ -167,9 +168,9 @@ namespace Mesen.Mcp.Tools
 			[Description("True to disable all input, false to re-enable")] bool disabled)
 		{
 			InputApi.DisableAllKeys(disabled);
-			return McpToolHelper.Serialize(new {
-				success = true,
-				inputDisabled = disabled
+			return McpToolHelper.Serialize(new DisableKeysResponse {
+				Success = true,
+				InputDisabled = disabled
 			});
 		}
 
@@ -183,9 +184,9 @@ namespace Mesen.Mcp.Tools
 			}
 
 			bool available = InputApi.HasControlDevice(type);
-			return McpToolHelper.Serialize(new {
-				controllerType = controllerType,
-				available = available
+			return McpToolHelper.Serialize(new HasControlDeviceResponse {
+				ControllerType = controllerType,
+				Available = available
 			});
 		}
 	}

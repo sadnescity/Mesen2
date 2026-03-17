@@ -1,6 +1,7 @@
 using Mesen.Config;
 using Mesen.Config.Shortcuts;
 using Mesen.Interop;
+using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -10,7 +11,7 @@ using System.ComponentModel;
 namespace Mesen.Mcp.Tools
 {
 	[McpServerToolType]
-	public static class EmulatorConfigTools
+	public class EmulatorConfigTools
 	{
 		[McpServerTool(Name = "mesen_get_version", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
 		 Description("Get the Mesen emulator version and build date.")]
@@ -18,9 +19,9 @@ namespace Mesen.Mcp.Tools
 		{
 			Version version = EmuApi.GetMesenVersion();
 			string buildDate = EmuApi.GetMesenBuildDate();
-			return McpToolHelper.Serialize(new {
-				version = version.ToString(3),
-				buildDate = buildDate
+			return McpToolHelper.Serialize(new VersionResponse {
+				Version = version.ToString(3),
+				BuildDate = buildDate
 			});
 		}
 
@@ -33,10 +34,10 @@ namespace Mesen.Mcp.Tools
 			FrameInfo screenSize = EmuApi.GetBaseScreenSize();
 			double aspectRatio = EmuApi.GetAspectRatio();
 
-			return McpToolHelper.Serialize(new {
-				width = screenSize.Width,
-				height = screenSize.Height,
-				aspectRatio = Math.Round(aspectRatio, 4)
+			return McpToolHelper.Serialize(new ScreenInfoResponse {
+				Width = screenSize.Width,
+				Height = screenSize.Height,
+				AspectRatio = Math.Round(aspectRatio, 4)
 			});
 		}
 
@@ -55,9 +56,9 @@ namespace Mesen.Mcp.Tools
 							shortcuts.Add(s.ToString());
 						}
 					}
-					return McpToolHelper.Serialize(new {
-						count = shortcuts.Count,
-						shortcuts = shortcuts
+					return McpToolHelper.Serialize(new ShortcutListResponse {
+						Count = shortcuts.Count,
+						Shortcuts = shortcuts
 					});
 				}
 
@@ -72,9 +73,9 @@ namespace Mesen.Mcp.Tools
 						Shortcut = emuShortcut,
 						Param = (uint)param
 					});
-					return McpToolHelper.Serialize(new {
-						success = true,
-						shortcut = shortcut
+					return McpToolHelper.Serialize(new ShortcutExecuteResponse {
+						Success = true,
+						Shortcut = shortcut
 					});
 				}
 
@@ -101,9 +102,9 @@ namespace Mesen.Mcp.Tools
 					throw new McpException("Invalid reset type: " + type + ". Use 'soft' or 'hard'.");
 			}
 
-			return McpToolHelper.Serialize(new {
-				success = true,
-				type = type.ToLowerInvariant()
+			return McpToolHelper.Serialize(new ResetResponse {
+				Success = true,
+				Type = type.ToLowerInvariant()
 			});
 		}
 
@@ -123,10 +124,10 @@ namespace Mesen.Mcp.Tools
 			}
 
 			ConfigApi.SetEmulationFlag(emuFlag, enabled);
-			return McpToolHelper.Serialize(new {
-				success = true,
-				flag = flag,
-				enabled = enabled
+			return McpToolHelper.Serialize(new SetFlagResponse {
+				Success = true,
+				Flag = flag,
+				Enabled = enabled
 			});
 		}
 
@@ -139,11 +140,11 @@ namespace Mesen.Mcp.Tools
 
 			CpuType cpu = McpToolHelper.ParseCpuType(cpuType);
 			TimingInfo timing = EmuApi.GetTimingInfo(cpu);
-			return McpToolHelper.Serialize(new {
-				fps = Math.Round(timing.Fps, 2),
-				frameCount = timing.FrameCount,
-				masterClock = timing.MasterClock,
-				masterClockRate = timing.MasterClockRate
+			return McpToolHelper.Serialize(new TimingInfoResponse {
+				Fps = Math.Round(timing.Fps, 2),
+				FrameCount = timing.FrameCount,
+				MasterClock = timing.MasterClock,
+				MasterClockRate = timing.MasterClockRate
 			});
 		}
 
@@ -152,8 +153,8 @@ namespace Mesen.Mcp.Tools
 		public static string GetLog()
 		{
 			string log = EmuApi.GetLog();
-			return McpToolHelper.Serialize(new {
-				log = log
+			return McpToolHelper.Serialize(new LogResponse {
+				Log = log
 			});
 		}
 
@@ -164,7 +165,7 @@ namespace Mesen.Mcp.Tools
 			[Description("Message body")] string message)
 		{
 			EmuApi.DisplayMessage(title, message);
-			return McpToolHelper.Serialize(new { success = true });
+			return McpToolHelper.Serialize(new SuccessResponse { Success = true });
 		}
 
 		[McpServerTool(Name = "mesen_list_memory_types", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
@@ -173,22 +174,22 @@ namespace Mesen.Mcp.Tools
 		{
 			McpToolHelper.EnsureRunning();
 
-			List<object> types = new();
+			List<MemoryTypeEntry> types = new();
 			foreach(MemoryType memType in Enum.GetValues<MemoryType>()) {
 				Int32 size = DebugApi.GetMemorySize(memType);
 				if(size > 0) {
-					types.Add(new {
-						name = memType.ToString(),
-						size = size,
-						sizeHex = "$" + size.ToString("X"),
-						sizeKB = Math.Round(size / 1024.0, 2)
+					types.Add(new MemoryTypeEntry {
+						Name = memType.ToString(),
+						Size = size,
+						SizeHex = "$" + size.ToString("X"),
+						SizeKB = Math.Round(size / 1024.0, 2)
 					});
 				}
 			}
 
-			return McpToolHelper.Serialize(new {
-				count = types.Count,
-				memoryTypes = types
+			return McpToolHelper.Serialize(new MemoryTypeListResponse {
+				Count = types.Count,
+				MemoryTypes = types
 			});
 		}
 
@@ -201,18 +202,18 @@ namespace Mesen.Mcp.Tools
 			RomInfo info = EmuApi.GetRomInfo();
 			CpuType mainCpu = info.ConsoleType.GetMainCpuType();
 
-			List<object> cpus = new();
+			List<CpuTypeEntry> cpus = new();
 			foreach(CpuType cpu in Enum.GetValues<CpuType>()) {
 				// Check if this CPU has any memory mapped (heuristic to see if it's active)
 				try {
 					MemoryType memType = cpu.ToMemoryType();
 					Int32 memSize = DebugApi.GetMemorySize(memType);
 					if(memSize > 0) {
-						cpus.Add(new {
-							name = cpu.ToString(),
-							isMain = cpu == mainCpu,
-							memoryType = memType.ToString(),
-							memorySize = memSize
+						cpus.Add(new CpuTypeEntry {
+							Name = cpu.ToString(),
+							IsMain = cpu == mainCpu,
+							MemoryType = memType.ToString(),
+							MemorySize = memSize
 						});
 					}
 				} catch {
@@ -220,10 +221,10 @@ namespace Mesen.Mcp.Tools
 				}
 			}
 
-			return McpToolHelper.Serialize(new {
-				consoleType = info.ConsoleType.ToString(),
-				mainCpu = mainCpu.ToString(),
-				availableCpus = cpus
+			return McpToolHelper.Serialize(new CpuTypeListResponse {
+				ConsoleType = info.ConsoleType.ToString(),
+				MainCpu = mainCpu.ToString(),
+				AvailableCpus = cpus
 			});
 		}
 	}

@@ -1,4 +1,5 @@
 using Mesen.Interop;
+using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using System;
 using System.Text.Json;
@@ -9,10 +10,6 @@ namespace Mesen.Mcp.Tools
 	public static class McpToolHelper
 	{
 		private static volatile bool _debuggerInitialized;
-
-		public static readonly JsonSerializerOptions JsonOptions = new() {
-			TypeInfoResolver = new DefaultJsonTypeInfoResolver()
-		};
 
 		public static bool IsDebuggerReady()
 		{
@@ -26,7 +23,11 @@ namespace Mesen.Mcp.Tools
 
 		public static string Serialize<T>(T value)
 		{
-			return JsonSerializer.Serialize(value, JsonOptions);
+			JsonTypeInfo<T>? typeInfo = McpJsonContext.Default.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>;
+			if(typeInfo == null) {
+				throw new InvalidOperationException("Type " + typeof(T).Name + " is not registered in McpJsonContext");
+			}
+			return JsonSerializer.Serialize(value, typeInfo);
 		}
 
 		public static void EnsureDebuggerReady()

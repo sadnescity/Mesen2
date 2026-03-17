@@ -1,5 +1,6 @@
 using Mesen.Config;
 using Mesen.Interop;
+using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -9,7 +10,7 @@ using System.IO;
 namespace Mesen.Mcp.Tools
 {
 	[McpServerToolType]
-	public static class RecordingTools
+	public class RecordingTools
 	{
 		[McpServerTool(Name = "mesen_video_recording", ReadOnly = false, Destructive = false, OpenWorld = false),
 		 Description("Control video (AVI) recording. Use action 'start' to begin recording, 'stop' to end, or 'status' to check if recording is active.")]
@@ -41,19 +42,19 @@ namespace Mesen.Mcp.Tools
 					};
 
 					RecordApi.AviRecord(filepath, options);
-					return McpToolHelper.Serialize(new {
-						success = true,
-						action = "start",
-						file = filepath,
-						codec = videoCodec.ToString()
+					return McpToolHelper.Serialize(new VideoRecordStartResponse {
+						Success = true,
+						Action = "start",
+						File = filepath,
+						Codec = videoCodec.ToString()
 					});
 
 				case "stop":
 					RecordApi.AviStop();
-					return McpToolHelper.Serialize(new { success = true, action = "stop" });
+					return McpToolHelper.Serialize(new SuccessActionResponse { Success = true, Action = "stop" });
 
 				case "status":
-					return McpToolHelper.Serialize(new { recording = RecordApi.AviIsRecording() });
+					return McpToolHelper.Serialize(new RecordingStatusResponse { Recording = RecordApi.AviIsRecording() });
 
 				default:
 					throw new McpException("Invalid action: " + action + ". Use 'start', 'stop', or 'status'.");
@@ -75,18 +76,18 @@ namespace Mesen.Mcp.Tools
 					}
 
 					RecordApi.WaveRecord(filepath);
-					return McpToolHelper.Serialize(new {
-						success = true,
-						action = "start",
-						file = filepath
+					return McpToolHelper.Serialize(new SuccessActionFileResponse {
+						Success = true,
+						Action = "start",
+						File = filepath
 					});
 
 				case "stop":
 					RecordApi.WaveStop();
-					return McpToolHelper.Serialize(new { success = true, action = "stop" });
+					return McpToolHelper.Serialize(new SuccessActionResponse { Success = true, Action = "stop" });
 
 				case "status":
-					return McpToolHelper.Serialize(new { recording = RecordApi.WaveIsRecording() });
+					return McpToolHelper.Serialize(new RecordingStatusResponse { Recording = RecordApi.WaveIsRecording() });
 
 				default:
 					throw new McpException("Invalid action: " + action + ". Use 'start', 'stop', or 'status'.");
@@ -117,11 +118,11 @@ namespace Mesen.Mcp.Tools
 					RecordMovieOptions movieOptions = new RecordMovieOptions(filepath, author, description, from);
 					RecordApi.MovieRecord(movieOptions);
 
-					return McpToolHelper.Serialize(new {
-						success = true,
-						action = "record",
-						file = filepath,
-						recordFrom = from.ToString()
+					return McpToolHelper.Serialize(new MovieRecordResponse {
+						Success = true,
+						Action = "record",
+						File = filepath,
+						RecordFrom = from.ToString()
 					});
 
 				case "play":
@@ -136,20 +137,20 @@ namespace Mesen.Mcp.Tools
 					}
 
 					RecordApi.MoviePlay(filepath);
-					return McpToolHelper.Serialize(new {
-						success = true,
-						action = "play",
-						file = filepath
+					return McpToolHelper.Serialize(new SuccessActionFileResponse {
+						Success = true,
+						Action = "play",
+						File = filepath
 					});
 
 				case "stop":
 					RecordApi.MovieStop();
-					return McpToolHelper.Serialize(new { success = true, action = "stop" });
+					return McpToolHelper.Serialize(new SuccessActionResponse { Success = true, Action = "stop" });
 
 				case "status":
-					return McpToolHelper.Serialize(new {
-						playing = RecordApi.MoviePlaying(),
-						recording = RecordApi.MovieRecording()
+					return McpToolHelper.Serialize(new MovieStatusResponse {
+						Playing = RecordApi.MoviePlaying(),
+						Recording = RecordApi.MovieRecording()
 					});
 
 				default:
