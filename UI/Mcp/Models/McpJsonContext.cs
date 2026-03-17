@@ -80,6 +80,7 @@ namespace Mesen.Mcp.Models
 	// ROM Hacking
 	[JsonSerializable(typeof(SaveRomResponse))]
 	[JsonSerializable(typeof(NesRomHeaderResponse))]
+	[JsonSerializable(typeof(SnesRomHeaderResponse))]
 	[JsonSerializable(typeof(PaletteInfoResponse))]
 	[JsonSerializable(typeof(SetPaletteColorResponse))]
 	[JsonSerializable(typeof(GetTilePixelResponse))]
