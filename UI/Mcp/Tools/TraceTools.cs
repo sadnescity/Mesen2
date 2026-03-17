@@ -1,4 +1,5 @@
 using Mesen.Interop;
+using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -10,7 +11,7 @@ using System.Text;
 namespace Mesen.Mcp.Tools
 {
 	[McpServerToolType]
-	public static class TraceTools
+	public class TraceTools
 	{
 		[McpServerTool(Name = "mesen_set_trace_options", ReadOnly = false, Destructive = false, OpenWorld = false),
 		 Description("Configure trace logging options for a CPU. Must be called before reading execution trace.")]
@@ -40,11 +41,11 @@ namespace Mesen.Mcp.Tools
 
 			DebugApi.SetTraceOptions(cpu, options);
 
-			return McpToolHelper.Serialize(new {
-				success = true,
-				cpuType = cpuType,
-				enabled = enabled,
-				format = traceFormat
+			return McpToolHelper.Serialize(new SetTraceOptionsResponse {
+				Success = true,
+				CpuType = cpuType,
+				Enabled = enabled,
+				Format = traceFormat
 			});
 		}
 
@@ -66,7 +67,7 @@ namespace Mesen.Mcp.Tools
 			TraceRow[] rows = DebugApi.GetExecutionTrace(0, (uint)count);
 
 			StringBuilder sb = new();
-			List<object> traceLines = new();
+			List<TraceLineEntry> traceLines = new();
 
 			foreach(TraceRow row in rows) {
 				if(filterCpu.HasValue && row.Type != filterCpu.Value) {
@@ -79,26 +80,26 @@ namespace Mesen.Mcp.Tools
 
 				sb.Append("[").Append(row.Type).Append("] ").Append(pc).Append(": ").Append(output).AppendLine();
 
-				traceLines.Add(new {
-					cpuType = row.Type.ToString(),
-					pc = pc,
-					byteCode = byteCode,
-					output = output
+				traceLines.Add(new TraceLineEntry {
+					CpuType = row.Type.ToString(),
+					Pc = pc,
+					ByteCode = byteCode,
+					Output = output
 				});
 			}
 
 			if(!string.IsNullOrEmpty(outputFile)) {
 				File.WriteAllText(outputFile, sb.ToString());
-				return McpToolHelper.Serialize(new {
-					success = true,
-					file = outputFile,
-					lineCount = traceLines.Count
+				return McpToolHelper.Serialize(new FileOutputResponse {
+					Success = true,
+					File = outputFile,
+					LineCount = traceLines.Count
 				});
 			}
 
-			return McpToolHelper.Serialize(new {
-				lineCount = traceLines.Count,
-				trace = traceLines
+			return McpToolHelper.Serialize(new ExecutionTraceResponse {
+				LineCount = traceLines.Count,
+				Trace = traceLines
 			});
 		}
 
@@ -109,7 +110,7 @@ namespace Mesen.Mcp.Tools
 			McpToolHelper.EnsureDebuggerReady();
 
 			DebugApi.ClearExecutionTrace();
-			return McpToolHelper.Serialize(new { success = true });
+			return McpToolHelper.Serialize(new SuccessResponse { Success = true });
 		}
 
 		[McpServerTool(Name = "mesen_trace_file", ReadOnly = false, Destructive = false, OpenWorld = false),
@@ -126,17 +127,17 @@ namespace Mesen.Mcp.Tools
 						throw new McpException("File path is required when action is 'start'.");
 					}
 					DebugApi.StartLogTraceToFile(filepath);
-					return McpToolHelper.Serialize(new {
-						success = true,
-						action = "start",
-						file = filepath
+					return McpToolHelper.Serialize(new SuccessActionFileResponse {
+						Success = true,
+						Action = "start",
+						File = filepath
 					});
 
 				case "stop":
 					DebugApi.StopLogTraceToFile();
-					return McpToolHelper.Serialize(new {
-						success = true,
-						action = "stop"
+					return McpToolHelper.Serialize(new SuccessActionResponse {
+						Success = true,
+						Action = "stop"
 					});
 
 				default:
@@ -159,7 +160,7 @@ namespace Mesen.Mcp.Tools
 					ProfiledFunction[] buffer = new ProfiledFunction[100000];
 					int count = DebugApi.GetProfilerData(cpu, ref buffer);
 
-					List<object> functions = new();
+					List<ProfiledFunctionEntry> functions = new();
 					StringBuilder sb = new();
 
 					for(int i = 0; i < count; i++) {
@@ -171,16 +172,16 @@ namespace Mesen.Mcp.Tools
 						string addrStr = "$" + f.Address.Address.ToString("X4");
 						string memType = f.Address.Type.ToString();
 
-						functions.Add(new {
-							address = addrStr,
-							memoryType = memType,
-							callCount = f.CallCount,
-							inclusiveCycles = f.InclusiveCycles,
-							exclusiveCycles = f.ExclusiveCycles,
-							minCycles = f.MinCycles,
-							maxCycles = f.MaxCycles,
-							avgCycles = f.GetAvgCycles(),
-							flags = f.Flags.ToString()
+						functions.Add(new ProfiledFunctionEntry {
+							Address = addrStr,
+							MemoryType = memType,
+							CallCount = f.CallCount,
+							InclusiveCycles = f.InclusiveCycles,
+							ExclusiveCycles = f.ExclusiveCycles,
+							MinCycles = f.MinCycles,
+							MaxCycles = f.MaxCycles,
+							AvgCycles = f.GetAvgCycles(),
+							Flags = f.Flags.ToString()
 						});
 
 						sb.Append(addrStr).Append(" (").Append(memType).Append(")")
@@ -193,22 +194,22 @@ namespace Mesen.Mcp.Tools
 
 					if(!string.IsNullOrEmpty(outputFile)) {
 						File.WriteAllText(outputFile, sb.ToString());
-						return McpToolHelper.Serialize(new {
-							success = true,
-							file = outputFile,
-							functionCount = functions.Count
+						return McpToolHelper.Serialize(new FileOutputResponse {
+							Success = true,
+							File = outputFile,
+							LineCount = functions.Count
 						});
 					}
 
-					return McpToolHelper.Serialize(new {
-						functionCount = functions.Count,
-						functions = functions
+					return McpToolHelper.Serialize(new ProfilerDataResponse {
+						FunctionCount = functions.Count,
+						Functions = functions
 					});
 				}
 
 				case "reset":
 					DebugApi.ResetProfiler(cpu);
-					return McpToolHelper.Serialize(new { success = true });
+					return McpToolHelper.Serialize(new SuccessResponse { Success = true });
 
 				default:
 					throw new McpException("Invalid action: " + action + ". Use 'get' or 'reset'.");

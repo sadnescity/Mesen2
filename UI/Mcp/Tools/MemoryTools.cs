@@ -1,4 +1,5 @@
 using Mesen.Interop;
+using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -10,7 +11,7 @@ using System.Text;
 namespace Mesen.Mcp.Tools
 {
 	[McpServerToolType]
-	public static class MemoryTools
+	public class MemoryTools
 	{
 		[McpServerTool(Name = "mesen_read_memory", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
 		 Description("Read memory from the emulator. Returns hex dump with optional ASCII representation. Use mesen_list_memory_types to see valid memory types for the current ROM.")]
@@ -35,11 +36,11 @@ namespace Mesen.Mcp.Tools
 
 			if(!string.IsNullOrEmpty(outputFile)) {
 				File.WriteAllBytes(outputFile, data);
-				return McpToolHelper.Serialize(new {
-					success = true,
-					file = outputFile,
-					startAddress = "$" + addr.ToString("X4"),
-					length = data.Length
+				return McpToolHelper.Serialize(new MemoryDumpFileResponse {
+					Success = true,
+					File = outputFile,
+					StartAddress = "$" + addr.ToString("X4"),
+					Length = data.Length
 				});
 			}
 
@@ -69,10 +70,10 @@ namespace Mesen.Mcp.Tools
 				hexDump.AppendLine();
 			}
 
-			return McpToolHelper.Serialize(new {
-				startAddress = "$" + addr.ToString("X4"),
-				length = data.Length,
-				hexDump = hexDump.ToString()
+			return McpToolHelper.Serialize(new ReadMemoryResponse {
+				StartAddress = "$" + addr.ToString("X4"),
+				Length = data.Length,
+				HexDump = hexDump.ToString()
 			});
 		}
 
@@ -101,10 +102,10 @@ namespace Mesen.Mcp.Tools
 			}
 
 			DebugApi.SetMemoryValues(memType, addr, data, data.Length);
-			return McpToolHelper.Serialize(new {
-				success = true,
-				address = "$" + addr.ToString("X4"),
-				bytesWritten = data.Length
+			return McpToolHelper.Serialize(new WriteMemoryResponse {
+				Success = true,
+				Address = "$" + addr.ToString("X4"),
+				BytesWritten = data.Length
 			});
 		}
 
@@ -117,11 +118,11 @@ namespace Mesen.Mcp.Tools
 			MemoryType memType = McpToolHelper.ParseMemoryType(memoryType);
 
 			Int32 size = DebugApi.GetMemorySize(memType);
-			return McpToolHelper.Serialize(new {
-				memoryType = memoryType,
-				size = size,
-				sizeHex = "$" + size.ToString("X"),
-				sizeKB = size / 1024.0
+			return McpToolHelper.Serialize(new MemorySizeResponse {
+				MemoryType = memoryType,
+				Size = size,
+				SizeHex = "$" + size.ToString("X"),
+				SizeKB = size / 1024.0
 			});
 		}
 
@@ -176,11 +177,11 @@ namespace Mesen.Mcp.Tools
 				}
 			}
 
-			return McpToolHelper.Serialize(new {
-				pattern = patternHex,
-				matchCount = matches.Count,
-				addresses = matches,
-				searchedRange = "$" + start.ToString("X4") + " - $" + end.ToString("X4")
+			return McpToolHelper.Serialize(new SearchMemoryResponse {
+				Pattern = patternHex,
+				MatchCount = matches.Count,
+				Addresses = matches,
+				SearchedRange = "$" + start.ToString("X4") + " - $" + end.ToString("X4")
 			});
 		}
 
@@ -198,10 +199,10 @@ namespace Mesen.Mcp.Tools
 			CpuType cpu = McpToolHelper.ParseCpuType(cpuType);
 
 			DebugApi.UpdateFrozenAddresses(cpu, start, end, freeze);
-			return McpToolHelper.Serialize(new {
-				success = true,
-				frozen = freeze,
-				range = "$" + start.ToString("X4") + " - $" + end.ToString("X4")
+			return McpToolHelper.Serialize(new FreezeAddressResponse {
+				Success = true,
+				Frozen = freeze,
+				Range = "$" + start.ToString("X4") + " - $" + end.ToString("X4")
 			});
 		}
 
@@ -222,10 +223,10 @@ namespace Mesen.Mcp.Tools
 
 			AddressInfo absAddr = DebugApi.GetAbsoluteAddress(relAddr);
 
-			return McpToolHelper.Serialize(new {
-				relativeAddress = "$" + addr.ToString("X4"),
-				absoluteAddress = absAddr.Address >= 0 ? "$" + absAddr.Address.ToString("X4") : "unmapped",
-				absoluteMemoryType = absAddr.Address >= 0 ? absAddr.Type.ToString() : "none"
+			return McpToolHelper.Serialize(new AddressInfoResponse {
+				RelativeAddress = "$" + addr.ToString("X4"),
+				AbsoluteAddress = absAddr.Address >= 0 ? "$" + absAddr.Address.ToString("X4") : "unmapped",
+				AbsoluteMemoryType = absAddr.Address >= 0 ? absAddr.Type.ToString() : "none"
 			});
 		}
 
@@ -242,7 +243,7 @@ namespace Mesen.Mcp.Tools
 			switch(action.ToLowerInvariant()) {
 				case "reset":
 					DebugApi.ResetMemoryAccessCounts();
-					return McpToolHelper.Serialize(new { success = true });
+					return McpToolHelper.Serialize(new SuccessResponse { Success = true });
 
 				case "get":
 					if(address == null) {
@@ -264,24 +265,24 @@ namespace Mesen.Mcp.Tools
 
 					AddressCounters[] counts = DebugApi.GetMemoryAccessCounts(addr, (uint)length, memType);
 
-					List<object> entries = new();
+					List<AccessCountEntry> entries = new();
 					for(int i = 0; i < counts.Length; i++) {
 						AddressCounters c = counts[i];
 						if(c.ReadCounter > 0 || c.WriteCounter > 0 || c.ExecCounter > 0) {
-							entries.Add(new {
-								address = "$" + (addr + i).ToString("X4"),
-								readCount = c.ReadCounter,
-								writeCount = c.WriteCounter,
-								execCount = c.ExecCounter
+							entries.Add(new AccessCountEntry {
+								Address = "$" + (addr + i).ToString("X4"),
+								ReadCount = c.ReadCounter,
+								WriteCount = c.WriteCounter,
+								ExecCount = c.ExecCounter
 							});
 						}
 					}
 
-					return McpToolHelper.Serialize(new {
-						startAddress = "$" + addr.ToString("X4"),
-						length = length,
-						activeAddresses = entries.Count,
-						counters = entries
+					return McpToolHelper.Serialize(new MemoryAccessCountsResponse {
+						StartAddress = "$" + addr.ToString("X4"),
+						Length = length,
+						ActiveAddresses = entries.Count,
+						Counters = entries
 					});
 
 				default:

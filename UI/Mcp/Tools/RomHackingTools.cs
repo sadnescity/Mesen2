@@ -1,4 +1,5 @@
 using Mesen.Interop;
+using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -10,7 +11,7 @@ using System.Text;
 namespace Mesen.Mcp.Tools
 {
 	[McpServerToolType]
-	public static class RomHackingTools
+	public class RomHackingTools
 	{
 		[McpServerTool(Name = "mesen_save_modified_rom", ReadOnly = false, Destructive = false, OpenWorld = false), Description("Save the currently loaded (and possibly modified) ROM to a file. Can create an IPS patch instead.")]
 		public static string SaveModifiedRom(
@@ -25,43 +26,72 @@ namespace Mesen.Mcp.Tools
 			}
 
 			bool success = DebugApi.SaveRomToDisk(filepath, saveAsIps, strip);
-			return McpToolHelper.Serialize(new {
-				success = success,
-				file = filepath,
-				saveAsIps = saveAsIps
+			return McpToolHelper.Serialize(new SaveRomResponse {
+				Success = success,
+				File = filepath,
+				SaveAsIps = saveAsIps
 			});
 		}
 
-		[McpServerTool(Name = "mesen_get_rom_header", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description("Get the raw ROM header bytes as a hex dump.")]
+		[McpServerTool(Name = "mesen_get_rom_header", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
+		 Description("Get parsed ROM header information. Currently only supported for NES ROMs (iNes/NES 2.0). Returns structured header fields. For other consoles, use mesen_read_memory to read the internal header from PRG ROM directly.")]
 		public static string GetRomHeader()
 		{
 			McpToolHelper.EnsureDebuggerReady();
 
+			RomInfo romInfo = EmuApi.GetRomInfo();
+			if(romInfo.ConsoleType != ConsoleType.Nes) {
+				throw new McpException("ROM header parsing is currently only supported for NES. For " + romInfo.ConsoleType + ", use mesen_read_memory to read the internal header from PRG ROM.");
+			}
+
 			byte[] header = DebugApi.GetRomHeader();
-			if(header.Length == 0) {
-				throw new McpException("No ROM header available");
+			if(header.Length < 16 || header[0] != 0x4E || header[1] != 0x45 || header[2] != 0x53 || header[3] != 0x1A) {
+				throw new McpException("Invalid or missing NES header");
 			}
 
-			StringBuilder hexDump = new();
-			for(int i = 0; i < header.Length; i += 16) {
-				hexDump.Append($"${i:X4}: ");
-				for(int j = 0; j < 16 && (i + j) < header.Length; j++) {
-					hexDump.Append($"{header[i + j]:X2} ");
-				}
-				for(int j = header.Length - i; j < 16; j++) {
-					hexDump.Append("   ");
-				}
-				hexDump.Append(" | ");
-				for(int j = 0; j < 16 && (i + j) < header.Length; j++) {
-					byte b = header[i + j];
-					hexDump.Append(b >= 0x20 && b < 0x7F ? (char)b : '.');
-				}
-				hexDump.AppendLine();
+			// Parse iNes/NES 2.0 header
+			bool isNes2 = (header[7] & 0x0C) == 0x08;
+			int mapper = isNes2
+				? ((header[8] & 0x0F) << 8) | (header[7] & 0xF0) | (header[6] >> 4)
+				: (header[7] & 0xF0) | (header[6] >> 4);
+			int subMapper = isNes2 ? (header[8] & 0xF0) >> 4 : 0;
+
+			int prgSize;
+			int chrSize;
+			if(isNes2) {
+				prgSize = ((header[9] & 0x0F) == 0x0F)
+					? (int)(Math.Pow(2, header[4] >> 2) * ((header[4] & 0x03) * 2 + 1))
+					: (((header[9] & 0x0F) << 8) | header[4]) * 16384;
+				chrSize = ((header[9] & 0xF0) == 0xF0)
+					? (int)(Math.Pow(2, header[5] >> 2) * ((header[5] & 0x03) * 2 + 1))
+					: (((header[9] & 0xF0) >> 4 << 8) | header[5]) * 8192;
+			} else {
+				prgSize = header[4] * 16384;
+				chrSize = header[5] * 8192;
 			}
 
-			return McpToolHelper.Serialize(new {
-				size = header.Length,
-				hexDump = hexDump.ToString()
+			string mirroring = (header[6] & 0x08) != 0 ? "FourScreen"
+				: (header[6] & 0x01) != 0 ? "Vertical" : "Horizontal";
+
+			// Build raw bytes string (just the 16-byte header)
+			StringBuilder raw = new();
+			for(int i = 0; i < 16 && i < header.Length; i++) {
+				if(i > 0) raw.Append(' ');
+				raw.Append(header[i].ToString("X2"));
+			}
+
+			return McpToolHelper.Serialize(new NesRomHeaderResponse {
+				Format = isNes2 ? "NES 2.0" : "iNes",
+				Mapper = mapper,
+				SubMapper = subMapper > 0 ? subMapper : null,
+				PrgRomSize = prgSize,
+				PrgRomSizeKB = prgSize / 1024,
+				ChrRomSize = chrSize,
+				ChrRomSizeKB = chrSize / 1024,
+				Mirroring = mirroring,
+				Battery = (header[6] & 0x02) != 0,
+				Trainer = (header[6] & 0x04) != 0,
+				RawBytes = raw.ToString()
 			});
 		}
 
@@ -77,23 +107,23 @@ namespace Mesen.Mcp.Tools
 			UInt32[] rgbPalette = info.GetRgbPalette();
 			UInt32[] rawPalette = info.GetRawPalette();
 
-			List<object> colors = new();
+			List<PaletteColorEntry> colors = new();
 			for(int i = 0; i < rgbPalette.Length; i++) {
 				UInt32 rgb = rgbPalette[i];
-				colors.Add(new {
-					index = i,
-					rgb = "#" + (rgb & 0xFFFFFF).ToString("X6"),
-					raw = "$" + rawPalette[i].ToString("X4")
+				colors.Add(new PaletteColorEntry {
+					Index = i,
+					Rgb = "#" + (rgb & 0xFFFFFF).ToString("X6"),
+					Raw = "$" + rawPalette[i].ToString("X4")
 				});
 			}
 
-			return McpToolHelper.Serialize(new {
-				colorCount = info.ColorCount,
-				bgColorCount = info.BgColorCount,
-				spriteColorCount = info.SpriteColorCount,
-				colorsPerPalette = info.ColorsPerPalette,
-				rawFormat = info.RawFormat.ToString(),
-				colors = colors
+			return McpToolHelper.Serialize(new PaletteInfoResponse {
+				ColorCount = info.ColorCount,
+				BgColorCount = info.BgColorCount,
+				SpriteColorCount = info.SpriteColorCount,
+				ColorsPerPalette = info.ColorsPerPalette,
+				RawFormat = info.RawFormat.ToString(),
+				Colors = colors
 			});
 		}
 
@@ -116,10 +146,10 @@ namespace Mesen.Mcp.Tools
 			color |= 0xFF000000;
 
 			DebugApi.SetPaletteColor(cpu, colorIndex, color);
-			return McpToolHelper.Serialize(new {
-				success = true,
-				colorIndex = colorIndex,
-				color = "#" + (color & 0xFFFFFF).ToString("X6")
+			return McpToolHelper.Serialize(new SetPaletteColorResponse {
+				Success = true,
+				ColorIndex = colorIndex,
+				Color = "#" + (color & 0xFFFFFF).ToString("X6")
 			});
 		}
 
@@ -144,11 +174,11 @@ namespace Mesen.Mcp.Tools
 			AddressInfo addressInfo = new() { Address = (int)addr, Type = memType };
 			int pixel = DebugApi.GetTilePixel(addressInfo, tileFormat, x, y);
 
-			return McpToolHelper.Serialize(new {
-				tileAddress = "$" + addr.ToString("X4"),
-				x = x,
-				y = y,
-				colorIndex = pixel
+			return McpToolHelper.Serialize(new GetTilePixelResponse {
+				TileAddress = "$" + addr.ToString("X4"),
+				X = x,
+				Y = y,
+				ColorIndex = pixel
 			});
 		}
 
@@ -174,12 +204,12 @@ namespace Mesen.Mcp.Tools
 			AddressInfo addressInfo = new() { Address = (int)addr, Type = memType };
 			DebugApi.SetTilePixel(addressInfo, tileFormat, x, y, color);
 
-			return McpToolHelper.Serialize(new {
-				success = true,
-				tileAddress = "$" + addr.ToString("X4"),
-				x = x,
-				y = y,
-				colorIndex = color
+			return McpToolHelper.Serialize(new SetTilePixelResponse {
+				Success = true,
+				TileAddress = "$" + addr.ToString("X4"),
+				X = x,
+				Y = y,
+				ColorIndex = color
 			});
 		}
 
@@ -205,11 +235,11 @@ namespace Mesen.Mcp.Tools
 				DebugApi.RemoveScript(scriptId);
 			}
 
-			return McpToolHelper.Serialize(new {
-				success = true,
-				scriptId = scriptId,
-				persistent = persistent,
-				log = log
+			return McpToolHelper.Serialize(new RunLuaScriptResponse {
+				Success = true,
+				ScriptId = scriptId,
+				Persistent = persistent,
+				Log = log
 			});
 		}
 
@@ -222,10 +252,10 @@ namespace Mesen.Mcp.Tools
 			string log = DebugApi.GetScriptLog(scriptId);
 			DebugApi.RemoveScript(scriptId);
 
-			return McpToolHelper.Serialize(new {
-				success = true,
-				scriptId = scriptId,
-				log = log
+			return McpToolHelper.Serialize(new RemoveLuaScriptResponse {
+				Success = true,
+				ScriptId = scriptId,
+				Log = log
 			});
 		}
 
@@ -260,10 +290,10 @@ namespace Mesen.Mcp.Tools
 				EmuApi.SetCheats(cheats.ToArray(), (UInt32)cheats.Count);
 			}
 
-			return McpToolHelper.Serialize(new {
-				success = errors.Count == 0,
-				cheatsApplied = cheats.Count,
-				errors = errors
+			return McpToolHelper.Serialize(new SetCheatsResponse {
+				Success = errors.Count == 0,
+				CheatsApplied = cheats.Count,
+				Errors = errors
 			});
 		}
 
@@ -273,7 +303,7 @@ namespace Mesen.Mcp.Tools
 			McpToolHelper.EnsureRunning();
 
 			EmuApi.ClearCheats();
-			return McpToolHelper.Serialize(new { success = true });
+			return McpToolHelper.Serialize(new SuccessResponse { Success = true });
 		}
 
 	}

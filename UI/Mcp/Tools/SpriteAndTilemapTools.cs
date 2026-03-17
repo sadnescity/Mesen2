@@ -1,4 +1,5 @@
 using Mesen.Interop;
+using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -10,7 +11,7 @@ using System.Linq;
 namespace Mesen.Mcp.Tools
 {
 	[McpServerToolType]
-	public static class SpriteAndTilemapTools
+	public class SpriteAndTilemapTools
 	{
 		[McpServerTool(Name = "mesen_get_sprite_list", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
 		 Description("Get the list of all sprites currently displayed by the PPU. Returns position, tile, palette, size, mirroring, and priority for each sprite.")]
@@ -72,35 +73,35 @@ namespace Mesen.Mcp.Tools
 				screenHandle.Free();
 			}
 
-			List<object> sprites = new();
+			List<SpriteEntry> sprites = new();
 			foreach(DebugSpriteInfo sprite in spriteList) {
-				sprites.Add(new {
-					index = sprite.SpriteIndex,
-					x = sprite.X,
-					y = sprite.Y,
-					rawX = sprite.RawX,
-					rawY = sprite.RawY,
-					width = sprite.Width,
-					height = sprite.Height,
-					tileIndex = "$" + sprite.TileIndex.ToString("X2"),
-					tileAddress = "$" + sprite.TileAddress.ToString("X4"),
-					palette = sprite.Palette,
-					paletteAddress = "$" + sprite.PaletteAddress.ToString("X4"),
-					bpp = sprite.Bpp,
-					format = sprite.Format.ToString(),
-					priority = sprite.Priority.ToString(),
-					mode = sprite.Mode.ToString(),
-					visibility = sprite.Visibility.ToString(),
-					horizontalMirror = sprite.HorizontalMirror.ToString(),
-					verticalMirror = sprite.VerticalMirror.ToString()
+				sprites.Add(new SpriteEntry {
+					Index = sprite.SpriteIndex,
+					X = sprite.X,
+					Y = sprite.Y,
+					RawX = sprite.RawX,
+					RawY = sprite.RawY,
+					Width = sprite.Width,
+					Height = sprite.Height,
+					TileIndex = "$" + sprite.TileIndex.ToString("X2"),
+					TileAddress = "$" + sprite.TileAddress.ToString("X4"),
+					Palette = sprite.Palette,
+					PaletteAddress = "$" + sprite.PaletteAddress.ToString("X4"),
+					Bpp = sprite.Bpp,
+					Format = sprite.Format.ToString(),
+					Priority = sprite.Priority.ToString(),
+					Mode = sprite.Mode.ToString(),
+					Visibility = sprite.Visibility.ToString(),
+					HorizontalMirror = sprite.HorizontalMirror.ToString(),
+					VerticalMirror = sprite.VerticalMirror.ToString()
 				});
 			}
 
-			return McpToolHelper.Serialize(new {
-				spriteCount = sprites.Count,
-				screenWidth = previewInfo.Width,
-				screenHeight = previewInfo.Height,
-				sprites = sprites
+			return McpToolHelper.Serialize(new SpriteListResponse {
+				SpriteCount = sprites.Count,
+				ScreenWidth = previewInfo.Width,
+				ScreenHeight = previewInfo.Height,
+				Sprites = sprites
 			});
 		}
 
@@ -146,24 +147,24 @@ namespace Mesen.Mcp.Tools
 				tilemapHandle.Free();
 			}
 
-			return McpToolHelper.Serialize(new {
-				layer = layer,
-				width = tilemapSize.Width,
-				height = tilemapSize.Height,
-				tileWidth = tilemapInfo.TileWidth,
-				tileHeight = tilemapInfo.TileHeight,
-				bpp = tilemapInfo.Bpp,
-				format = tilemapInfo.Format.ToString(),
-				mirroring = tilemapInfo.Mirroring.ToString(),
-				scrollX = tilemapInfo.ScrollX,
-				scrollY = tilemapInfo.ScrollY,
-				scrollWidth = tilemapInfo.ScrollWidth,
-				scrollHeight = tilemapInfo.ScrollHeight,
-				rowCount = tilemapInfo.RowCount,
-				columnCount = tilemapInfo.ColumnCount,
-				tilemapAddress = "$" + tilemapInfo.TilemapAddress.ToString("X4"),
-				tilesetAddress = "$" + tilemapInfo.TilesetAddress.ToString("X4"),
-				priority = tilemapInfo.Priority
+			return McpToolHelper.Serialize(new TilemapInfoResponse {
+				Layer = layer,
+				Width = tilemapSize.Width,
+				Height = tilemapSize.Height,
+				TileWidth = tilemapInfo.TileWidth,
+				TileHeight = tilemapInfo.TileHeight,
+				Bpp = tilemapInfo.Bpp,
+				Format = tilemapInfo.Format.ToString(),
+				Mirroring = tilemapInfo.Mirroring.ToString(),
+				ScrollX = tilemapInfo.ScrollX,
+				ScrollY = tilemapInfo.ScrollY,
+				ScrollWidth = tilemapInfo.ScrollWidth,
+				ScrollHeight = tilemapInfo.ScrollHeight,
+				RowCount = tilemapInfo.RowCount,
+				ColumnCount = tilemapInfo.ColumnCount,
+				TilemapAddress = "$" + tilemapInfo.TilemapAddress.ToString("X4"),
+				TilesetAddress = "$" + tilemapInfo.TilesetAddress.ToString("X4"),
+				Priority = tilemapInfo.Priority
 			});
 		}
 
@@ -202,22 +203,22 @@ namespace Mesen.Mcp.Tools
 			}
 
 			DebugTilemapTileInfo tile = tileInfo.Value;
-			return McpToolHelper.Serialize(new {
-				row = tile.Row,
-				column = tile.Column,
-				width = tile.Width,
-				height = tile.Height,
-				tileIndex = tile.TileIndex,
-				tileMapAddress = "$" + tile.TileMapAddress.ToString("X4"),
-				tileAddress = "$" + tile.TileAddress.ToString("X4"),
-				paletteIndex = tile.PaletteIndex,
-				paletteAddress = "$" + tile.PaletteAddress.ToString("X4"),
-				basePaletteIndex = tile.BasePaletteIndex,
-				attributeAddress = "$" + tile.AttributeAddress.ToString("X4"),
-				attributeData = "$" + tile.AttributeData.ToString("X4"),
-				horizontalMirroring = tile.HorizontalMirroring.ToString(),
-				verticalMirroring = tile.VerticalMirroring.ToString(),
-				highPriority = tile.HighPriority.ToString()
+			return McpToolHelper.Serialize(new TilemapTileInfoResponse {
+				Row = tile.Row,
+				Column = tile.Column,
+				Width = tile.Width,
+				Height = tile.Height,
+				TileIndex = tile.TileIndex,
+				TileMapAddress = "$" + tile.TileMapAddress.ToString("X4"),
+				TileAddress = "$" + tile.TileAddress.ToString("X4"),
+				PaletteIndex = tile.PaletteIndex,
+				PaletteAddress = "$" + tile.PaletteAddress.ToString("X4"),
+				BasePaletteIndex = tile.BasePaletteIndex,
+				AttributeAddress = "$" + tile.AttributeAddress.ToString("X4"),
+				AttributeData = "$" + tile.AttributeData.ToString("X4"),
+				HorizontalMirroring = tile.HorizontalMirroring.ToString(),
+				VerticalMirroring = tile.VerticalMirroring.ToString(),
+				HighPriority = tile.HighPriority.ToString()
 			});
 		}
 	}

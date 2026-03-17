@@ -1,3 +1,4 @@
+using Mesen.Mcp.Tools;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,8 +41,6 @@ namespace Mesen.Mcp
 
 				builder.WebHost.UseUrls($"http://localhost:{port}");
 
-				System.Reflection.Assembly mcpAssembly = typeof(MesenMcpServer).Assembly;
-
 				builder.Services
 					.AddMcpServer(options => {
 						options.ServerInfo = new() {
@@ -50,9 +49,20 @@ namespace Mesen.Mcp
 						};
 					})
 					.WithHttpTransport()
-					.WithToolsFromAssembly(mcpAssembly)
-					.WithPromptsFromAssembly(mcpAssembly)
-					.WithResourcesFromAssembly(mcpAssembly);
+					.WithTools<DebugExecutionTools>()
+					.WithTools<DisassemblyTools>()
+					.WithTools<EmulatorTools>()
+					.WithTools<EmulatorConfigTools>()
+					.WithTools<HistoryTools>()
+					.WithTools<InputTools>()
+					.WithTools<MemoryTools>()
+					.WithTools<RecordingTools>()
+					.WithTools<RomHackingTools>()
+					.WithTools<SpriteAndTilemapTools>()
+					.WithTools<TextSearchTools>()
+					.WithTools<TraceTools>()
+					.WithPrompts<MesenMcpPrompts>()
+					.WithResources<MesenMcpResources>();
 
 				_app = builder.Build();
 				_app.MapMcp("/mcp");
