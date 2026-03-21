@@ -1,6 +1,5 @@
 using Mesen.Debugger;
 using Mesen.Interop;
-using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -36,46 +35,21 @@ namespace Mesen.Mcp.Tools
 			CodeLineData[] lines = DebugApi.GetDisassemblyOutput(cpu, (uint)rowIndex, (uint)lineCount);
 
 			StringBuilder sb = new();
-			List<DisassemblyLineEntry> result = new();
 			foreach(CodeLineData line in lines) {
 				if(line.Address >= 0 && !string.IsNullOrWhiteSpace(line.Text)) {
-					string addrStr = "$" + line.Address.ToString("X4");
-					string byteCode = line.ByteCodeStr;
-					string text = line.Text;
-					string comment = line.Comment;
-
-					sb.Append(addrStr).Append(": ").Append(text);
-					if(!string.IsNullOrEmpty(byteCode)) {
-						sb.Append("  [").Append(byteCode.Trim()).Append("]");
-					}
-					if(!string.IsNullOrEmpty(comment)) {
-						sb.Append("  ; ").Append(comment);
+					sb.Append('$').Append(line.Address.ToString("X4")).Append(": ").Append(line.Text);
+					if(!string.IsNullOrEmpty(line.Comment)) {
+						sb.Append("  ; ").Append(line.Comment);
 					}
 					sb.AppendLine();
-
-					result.Add(new DisassemblyLineEntry {
-						Address = addrStr,
-						ByteCode = byteCode.Trim(),
-						Text = text,
-						Comment = comment
-					});
 				}
 			}
 
+			string text = sb.ToString();
 			if(!string.IsNullOrEmpty(outputFile)) {
-				File.WriteAllText(outputFile, sb.ToString());
-				return McpToolHelper.Serialize(new FileOutputResponse {
-					Success = true,
-					File = outputFile,
-					LineCount = result.Count
-				});
+				File.WriteAllText(outputFile, text);
 			}
-
-			return McpToolHelper.Serialize(new DisassemblyResponse {
-				StartAddress = "$" + addr.ToString("X4"),
-				LineCount = result.Count,
-				Lines = result
-			});
+			return text;
 		}
 
 		[McpServerTool(Name = "mesen_find_occurrences", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
@@ -98,22 +72,13 @@ namespace Mesen.Mcp.Tools
 
 			CodeLineData[] results = DebugApi.FindOccurrences(cpu, searchString, options);
 
-			List<FindOccurrenceEntry> matches = new();
+			StringBuilder sb = new();
 			foreach(CodeLineData line in results) {
 				if(line.Address >= 0) {
-					matches.Add(new FindOccurrenceEntry {
-						Address = "$" + line.Address.ToString("X4"),
-						Text = line.Text,
-						ByteCode = line.ByteCodeStr.Trim()
-					});
+					sb.Append('$').Append(line.Address.ToString("X4")).Append(": ").AppendLine(line.Text);
 				}
 			}
-
-			return McpToolHelper.Serialize(new FindOccurrencesResponse {
-				SearchString = searchString,
-				MatchCount = matches.Count,
-				Matches = matches
-			});
+			return sb.Length > 0 ? sb.ToString() : "No matches.";
 		}
 
 		[McpServerTool(Name = "mesen_assemble", ReadOnly = false, Destructive = false, OpenWorld = false),
@@ -148,18 +113,20 @@ namespace Mesen.Mcp.Tools
 				}
 			}
 
+			if(errors.Count > 0) {
+				StringBuilder errSb = new("Assembly errors:");
+				foreach(string err in errors) {
+					errSb.Append('\n').Append(err);
+				}
+				return errSb.ToString();
+			}
+
 			StringBuilder hexStr = new();
 			foreach(byte b in bytes) {
 				hexStr.Append(b.ToString("X2"));
 			}
 
-			return McpToolHelper.Serialize(new AssembleResponse {
-				Success = errors.Count == 0,
-				StartAddress = "$" + addr.ToString("X4"),
-				ByteCount = bytes.Count,
-				HexBytes = hexStr.ToString(),
-				Errors = errors
-			});
+			return "Assembled " + bytes.Count + " bytes at $" + addr.ToString("X4") + ": " + hexStr;
 		}
 
 		[McpServerTool(Name = "mesen_label", ReadOnly = false, Destructive = false, OpenWorld = false),
@@ -189,16 +156,11 @@ namespace Mesen.Mcp.Tools
 					MemoryType memType = McpToolHelper.ParseMemoryType(memoryType);
 
 					DebugApi.SetLabel(addr, memType, label, comment ?? "");
-					return McpToolHelper.Serialize(new LabelSetResponse {
-						Success = true,
-						Address = "$" + addr.ToString("X4"),
-						Label = label,
-						Comment = comment ?? ""
-					});
+					return "Label '" + label + "' set at $" + addr.ToString("X4");
 
 				case "clear_all":
 					DebugApi.ClearLabels();
-					return McpToolHelper.Serialize(new SuccessResponse { Success = true });
+					return "Labels cleared.";
 
 				default:
 					throw new McpException("Invalid action: " + action + ". Use 'set' or 'clear_all'.");
@@ -216,19 +178,9 @@ namespace Mesen.Mcp.Tools
 			CdlStatistics stats = DebugApi.GetCdlStatistics(memType);
 			uint unknownBytes = stats.TotalBytes - stats.CodeBytes - stats.DataBytes;
 
-			return McpToolHelper.Serialize(new CdlStatisticsResponse {
-				TotalBytes = stats.TotalBytes,
-				CodeBytes = stats.CodeBytes,
-				DataBytes = stats.DataBytes,
-				UnknownBytes = unknownBytes,
-				CodePercent = stats.TotalBytes > 0 ? Math.Round(100.0 * stats.CodeBytes / stats.TotalBytes, 2) : 0,
-				DataPercent = stats.TotalBytes > 0 ? Math.Round(100.0 * stats.DataBytes / stats.TotalBytes, 2) : 0,
-				UnknownPercent = stats.TotalBytes > 0 ? Math.Round(100.0 * unknownBytes / stats.TotalBytes, 2) : 0,
-				JumpTargetCount = stats.JumpTargetCount,
-				FunctionCount = stats.FunctionCount,
-				DrawnChrBytes = stats.DrawnChrBytes,
-				TotalChrBytes = stats.TotalChrBytes
-			});
+			return "Total=" + stats.TotalBytes + " Code=" + stats.CodeBytes + " Data=" + stats.DataBytes +
+				" Unknown=" + unknownBytes + " JumpTargets=" + stats.JumpTargetCount + " Functions=" + stats.FunctionCount +
+				" CHR=" + stats.DrawnChrBytes + "/" + stats.TotalChrBytes;
 		}
 
 		[McpServerTool(Name = "mesen_get_cdl_functions", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
@@ -240,15 +192,12 @@ namespace Mesen.Mcp.Tools
 			MemoryType memType = McpToolHelper.ParseMemoryType(memoryType);
 
 			UInt32[] functions = DebugApi.GetCdlFunctions(memType);
-			List<string> addresses = new();
+			StringBuilder sb = new();
 			foreach(UInt32 funcAddr in functions) {
-				addresses.Add("$" + funcAddr.ToString("X4"));
+				if(sb.Length > 0) sb.Append(' ');
+				sb.Append('$').Append(funcAddr.ToString("X4"));
 			}
-
-			return McpToolHelper.Serialize(new CdlFunctionsResponse {
-				FunctionCount = addresses.Count,
-				Addresses = addresses
-			});
+			return sb.ToString();
 		}
 
 		[McpServerTool(Name = "mesen_mark_bytes_as", ReadOnly = false, Destructive = false, OpenWorld = false),
@@ -269,11 +218,7 @@ namespace Mesen.Mcp.Tools
 			}
 
 			DebugApi.MarkBytesAs(memType, start, end, cdlFlags);
-			return McpToolHelper.Serialize(new MarkBytesResponse {
-				Success = true,
-				Range = "$" + start.ToString("X4") + " - $" + end.ToString("X4"),
-				Flags = flags
-			});
+			return "Marked $" + start.ToString("X4") + "-$" + end.ToString("X4") + " as " + flags;
 		}
 
 		[McpServerTool(Name = "mesen_cdl_file", ReadOnly = false, Destructive = false, OpenWorld = false),
@@ -289,22 +234,14 @@ namespace Mesen.Mcp.Tools
 			switch(action.ToLowerInvariant()) {
 				case "save":
 					DebugApi.SaveCdlFile(memType, filepath);
-					return McpToolHelper.Serialize(new SuccessActionFileResponse {
-						Success = true,
-						Action = "save",
-						File = filepath
-					});
+					return "CDL saved to " + filepath;
 
 				case "load":
 					if(!File.Exists(filepath)) {
 						throw new McpException("File not found: " + filepath);
 					}
 					DebugApi.LoadCdlFile(memType, filepath);
-					return McpToolHelper.Serialize(new SuccessActionFileResponse {
-						Success = true,
-						Action = "load",
-						File = filepath
-					});
+					return "CDL loaded from " + filepath;
 
 				default:
 					throw new McpException("Invalid action: " + action + ". Use 'save' or 'load'.");

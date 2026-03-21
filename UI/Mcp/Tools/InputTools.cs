@@ -1,6 +1,4 @@
-using Mesen.Config;
 using Mesen.Interop;
-using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -12,102 +10,6 @@ namespace Mesen.Mcp.Tools
 	[McpServerToolType]
 	public class InputTools
 	{
-		[McpServerTool(Name = "mesen_key_state", ReadOnly = false, Destructive = false, OpenWorld = false),
-		 Description("Control keyboard key state. Use 'set' to press/release a key, 'reset' to release all keys, or 'get_pressed' to list currently pressed keys.")]
-		public static string KeyState(
-			[Description("Action: 'set' (press/release a key), 'reset' (release all keys), or 'get_pressed' (list pressed keys)")] string action,
-			[Description("Key scan code (required for 'set' action)")] int scanCode = 0,
-			[Description("True to press, false to release (for 'set' action)")] bool pressed = true)
-		{
-			switch(action.ToLowerInvariant()) {
-				case "set":
-					InputApi.SetKeyState((UInt16)scanCode, pressed);
-					return McpToolHelper.Serialize(new KeySetResponse {
-						Success = true,
-						ScanCode = scanCode,
-						Pressed = pressed
-					});
-
-				case "reset":
-					InputApi.ResetKeyState();
-					return McpToolHelper.Serialize(new SuccessResponse { Success = true });
-
-				case "get_pressed":
-					List<UInt16> keys = InputApi.GetPressedKeys();
-					List<KeyEntry> result = new();
-					foreach(UInt16 key in keys) {
-						result.Add(new KeyEntry {
-							ScanCode = (int)key,
-							KeyName = InputApi.GetKeyName(key)
-						});
-					}
-					return McpToolHelper.Serialize(new PressedKeysResponse {
-						Count = result.Count,
-						Keys = result
-					});
-
-				default:
-					throw new McpException("Invalid action: " + action + ". Use 'set', 'reset', or 'get_pressed'.");
-			}
-		}
-
-		[McpServerTool(Name = "mesen_key_info", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
-		 Description("Look up key info. Provide either scanCode or keyName to get the other.")]
-		public static string KeyInfo(
-			[Description("Scan code to look up (mutually exclusive with keyName)")] int? scanCode = null,
-			[Description("Key name to look up (e.g. 'A', 'Space', 'Enter')")] string? keyName = null)
-		{
-			if(keyName != null) {
-				UInt16 code = InputApi.GetKeyCode(keyName);
-				if(code == 0) {
-					throw new McpException("Key not found: " + keyName);
-				}
-				return McpToolHelper.Serialize(new KeyInfoResponse {
-					KeyName = keyName,
-					ScanCode = (int)code
-				});
-			} else if(scanCode != null) {
-				string name = InputApi.GetKeyName((UInt16)scanCode.Value);
-				return McpToolHelper.Serialize(new KeyInfoResponse {
-					ScanCode = scanCode.Value,
-					KeyName = name
-				});
-			} else {
-				throw new McpException("Provide either scanCode or keyName.");
-			}
-		}
-
-		[McpServerTool(Name = "mesen_mouse", ReadOnly = false, Destructive = false, OpenWorld = false),
-		 Description("Control mouse input. Use 'relative' mode for movement deltas or 'absolute' mode for screen position (0.0-1.0).")]
-		public static string Mouse(
-			[Description("Mode: 'relative' (movement delta) or 'absolute' (screen position 0.0-1.0)")] string mode,
-			[Description("X value (pixels for relative, 0.0-1.0 for absolute)")] double x,
-			[Description("Y value (pixels for relative, 0.0-1.0 for absolute)")] double y)
-		{
-			switch(mode.ToLowerInvariant()) {
-				case "relative":
-					InputApi.SetMouseMovement((Int16)x, (Int16)y);
-					return McpToolHelper.Serialize(new MouseResponse {
-						Success = true,
-						Mode = "relative",
-						X = x,
-						Y = y
-					});
-
-				case "absolute":
-					InputApi.SetMousePosition(x, y);
-					return McpToolHelper.Serialize(new MouseResponse {
-						Success = true,
-						Mode = "absolute",
-						X = x,
-						Y = y
-					});
-
-				default:
-					throw new McpException("Invalid mode: " + mode + ". Use 'relative' or 'absolute'.");
-			}
-		}
-
 		[McpServerTool(Name = "mesen_input_override", ReadOnly = false, Destructive = false, OpenWorld = false),
 		 Description("Override controller input for automated gameplay. Use 'list' to get available ports or 'set' to override button states.")]
 		public static string InputOverride(
@@ -120,9 +22,7 @@ namespace Mesen.Mcp.Tools
 			switch(action.ToLowerInvariant()) {
 				case "list":
 					List<int> indexes = DebugApi.GetAvailableInputOverrides();
-					return McpToolHelper.Serialize(new AvailablePortsResponse {
-						AvailablePorts = indexes
-					});
+					return "Ports: " + string.Join(", ", indexes);
 
 				case "set":
 					if(port < 0 || port > 7) {
@@ -151,43 +51,12 @@ namespace Mesen.Mcp.Tools
 					}
 
 					DebugApi.SetInputOverrides((UInt32)port, state);
-					return McpToolHelper.Serialize(new InputOverrideResponse {
-						Success = true,
-						Port = port,
-						Buttons = buttons
-					});
+					return "Port " + port + ": " + (string.IsNullOrEmpty(buttons) ? "(released)" : buttons);
 
 				default:
 					throw new McpException("Invalid action: " + action + ". Use 'list' or 'set'.");
 			}
 		}
 
-		[McpServerTool(Name = "mesen_disable_all_keys", ReadOnly = false, Destructive = false, OpenWorld = false),
-		 Description("Disable or re-enable all keyboard/controller input. Useful when automating input to prevent interference from physical devices.")]
-		public static string DisableAllKeys(
-			[Description("True to disable all input, false to re-enable")] bool disabled)
-		{
-			InputApi.DisableAllKeys(disabled);
-			return McpToolHelper.Serialize(new DisableKeysResponse {
-				Success = true,
-				InputDisabled = disabled
-			});
-		}
-
-		[McpServerTool(Name = "mesen_has_control_device", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
-		 Description("Check if a specific controller type is connected/available.")]
-		public static string HasControlDevice(
-			[Description("Controller type (case-insensitive): SnesController, NesController, SnesMouse, SuperScope, NesZapper, GameboyController, GbaController, PceController, SmsController, WsController, etc.")] string controllerType)
-		{
-			if(!Enum.TryParse<ControllerType>(controllerType, true, out ControllerType type)) {
-				throw new McpException("Invalid controller type: " + controllerType);
-			}
-
-			bool available = InputApi.HasControlDevice(type);
-			return McpToolHelper.Serialize(new HasControlDeviceResponse {
-				ControllerType = controllerType,
-				Available = available
-			});
-		}
 	}
 }

@@ -1,6 +1,5 @@
 using Mesen.Config;
 using Mesen.Interop;
-using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -30,15 +29,7 @@ namespace Mesen.Mcp.Tools
 			}
 
 			RomInfo info = EmuApi.GetRomInfo();
-			return McpToolHelper.Serialize(new LoadRomResponse {
-				Success = true,
-				RomInfo = new RomInfoDetail {
-					Name = info.GetRomName(),
-					Format = info.Format.ToString(),
-					ConsoleType = info.ConsoleType.ToString(),
-					Hash = EmuApi.GetRomHash(HashType.Sha1)
-				}
-			});
+			return "Loaded: " + info.GetRomName() + " (" + info.Format + ", " + info.ConsoleType + ")";
 		}
 
 		[McpServerTool(Name = "mesen_get_rom_info", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
@@ -48,12 +39,7 @@ namespace Mesen.Mcp.Tools
 			McpToolHelper.EnsureRunning();
 
 			RomInfo info = EmuApi.GetRomInfo();
-			return McpToolHelper.Serialize(new RomInfoDetail {
-				Name = info.GetRomName(),
-				Format = info.Format.ToString(),
-				ConsoleType = info.ConsoleType.ToString(),
-				Hash = EmuApi.GetRomHash(HashType.Sha1)
-			});
+			return info.GetRomName() + " " + info.Format + " " + info.ConsoleType + " " + EmuApi.GetRomHash(HashType.Sha1);
 		}
 
 		[McpServerTool(Name = "mesen_playback", ReadOnly = false, Destructive = false, OpenWorld = false),
@@ -66,45 +52,28 @@ namespace Mesen.Mcp.Tools
 			switch(action.ToLowerInvariant()) {
 				case "pause":
 					EmuApi.Pause();
-					break;
+					return "Paused.";
 				case "resume":
 					EmuApi.Resume();
-					break;
+					return "Resumed.";
 				default:
 					throw new McpException("Invalid action: " + action + ". Use 'pause' or 'resume'.");
 			}
-
-			return McpToolHelper.Serialize(new PlaybackResponse {
-				Success = true,
-				Action = action.ToLowerInvariant(),
-				Paused = EmuApi.IsPaused()
-			});
 		}
 
 		[McpServerTool(Name = "mesen_get_status", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
 		 Description("Get the current emulator status: running, paused, timing info.")]
 		public static string GetStatus()
 		{
-			bool running = EmuApi.IsRunning();
-			bool paused = EmuApi.IsPaused();
-
-			if(!running) {
-				return McpToolHelper.Serialize(new PausedStatusResponse { Running = running, Paused = paused });
+			if(!EmuApi.IsRunning()) {
+				return "Not running.";
 			}
 
 			RomInfo info = EmuApi.GetRomInfo();
 			CpuType mainCpu = info.ConsoleType.GetMainCpuType();
 			TimingInfo timing = EmuApi.GetTimingInfo(mainCpu);
 
-			return McpToolHelper.Serialize(new FullStatusResponse {
-				Running = running,
-				Paused = paused,
-				ConsoleType = info.ConsoleType.ToString(),
-				RomName = info.GetRomName(),
-				Fps = Math.Round(timing.Fps, 2),
-				FrameCount = timing.FrameCount,
-				MasterClock = timing.MasterClock
-			});
+			return "Running " + info.ConsoleType + " " + info.GetRomName() + " " + Math.Round(timing.Fps, 2) + "fps frame=" + timing.FrameCount;
 		}
 
 		[McpServerTool(Name = "mesen_take_screenshot", ReadOnly = true, Destructive = false, OpenWorld = false),
@@ -125,7 +94,7 @@ namespace Mesen.Mcp.Tools
 
 				if(!string.IsNullOrEmpty(outputFile)) {
 					File.Copy(tempPath, outputFile, true);
-					yield return new TextContentBlock { Text = McpToolHelper.Serialize(new ScreenshotSavedResponse { SavedTo = outputFile, Size = pngData.Length }) };
+					yield return new TextContentBlock { Text = "Saved to " + outputFile };
 				}
 
 				yield return ImageContentBlock.FromBytes(pngData, "image/png");
@@ -146,22 +115,22 @@ namespace Mesen.Mcp.Tools
 				case "save":
 					if(int.TryParse(slotOrPath, out int saveSlot) && saveSlot >= 1 && saveSlot <= 10) {
 						EmuApi.SaveState((uint)saveSlot);
-						return McpToolHelper.Serialize(new SaveStateSlotResponse { Success = true, Action = "save", Slot = saveSlot });
+						return "Saved slot " + saveSlot;
 					} else {
 						EmuApi.SaveStateFile(slotOrPath);
-						return McpToolHelper.Serialize(new SuccessActionFileResponse { Success = true, Action = "save", File = slotOrPath });
+						return "Saved to " + slotOrPath;
 					}
 
 				case "load":
 					if(int.TryParse(slotOrPath, out int loadSlot) && loadSlot >= 1 && loadSlot <= 10) {
 						EmuApi.LoadState((uint)loadSlot);
-						return McpToolHelper.Serialize(new SaveStateSlotResponse { Success = true, Action = "load", Slot = loadSlot });
+						return "Loaded slot " + loadSlot;
 					} else {
 						if(!File.Exists(slotOrPath)) {
 							throw new McpException("File not found: " + slotOrPath);
 						}
 						EmuApi.LoadStateFile(slotOrPath);
-						return McpToolHelper.Serialize(new SuccessActionFileResponse { Success = true, Action = "load", File = slotOrPath });
+						return "Loaded from " + slotOrPath;
 					}
 
 				default:

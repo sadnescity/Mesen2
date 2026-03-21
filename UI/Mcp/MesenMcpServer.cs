@@ -1,3 +1,4 @@
+using Mesen.Interop;
 using Mesen.Mcp.Tools;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -56,7 +57,6 @@ namespace Mesen.Mcp
 					.WithTools<HistoryTools>()
 					.WithTools<InputTools>()
 					.WithTools<MemoryTools>()
-					.WithTools<RecordingTools>()
 					.WithTools<RomHackingTools>()
 					.WithTools<SpriteAndTilemapTools>()
 					.WithTools<TextSearchTools>()
@@ -73,10 +73,36 @@ namespace Mesen.Mcp
 				_isRunning = true;
 				LastError = null;
 				_logger?.LogInformation("MCP server started on port {Port}", port);
+
+				// Auto-initialize debugger and enable tracing for the main CPU
+				InitializeDebuggerAndTracing();
 			} catch(Exception ex) {
 				LastError = ex.ToString();
 				_isRunning = false;
 				_logger?.LogError(ex, "Failed to start MCP server");
+			}
+		}
+
+		/// <summary>
+		/// Called when a ROM is loaded so we can re-initialize the debugger and tracing.
+		/// </summary>
+		public void OnRomLoaded()
+		{
+			if(_isRunning) {
+				InitializeDebuggerAndTracing();
+			}
+		}
+
+		private void InitializeDebuggerAndTracing()
+		{
+			try {
+				if(EmuApi.IsRunning()) {
+					DebugApi.InitializeDebugger();
+					McpToolHelper.MarkDebuggerInitialized();
+					McpToolHelper.EnableDefaultTracing();
+				}
+			} catch(Exception ex) {
+				_logger?.LogWarning(ex, "Failed to auto-initialize debugger");
 			}
 		}
 

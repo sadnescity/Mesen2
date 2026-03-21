@@ -1,5 +1,4 @@
 using Mesen.Interop;
-using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -46,8 +45,11 @@ namespace Mesen.Mcp.Tools
 
 			byte[] memory = DebugApi.GetMemoryValues(memType, start, end);
 
-			List<RelativeSearchMatchEntry> matches = new();
-			for(int offset = 0; offset <= memory.Length - searchText.Length && matches.Count < maxResults; offset++) {
+			int matchCount = 0;
+			Dictionary<string, string>? sampleTable = null;
+			StringBuilder matchLines = new();
+
+			for(int offset = 0; offset <= memory.Length - searchText.Length && matchCount < maxResults; offset++) {
 				bool found = true;
 				for(int i = 0; i < signature.Length; i++) {
 					int diff = (int)memory[offset + i + 1] - (int)memory[offset + i];
@@ -61,32 +63,48 @@ namespace Mesen.Mcp.Tools
 					byte firstByte = memory[offset];
 					int baseOffset = firstByte - (int)searchText[0];
 
-					// Build the inferred character table
-					Dictionary<string, string> inferredTable = new();
-					for(int i = 0; i < searchText.Length; i++) {
-						inferredTable["$" + memory[offset + i].ToString("X2")] = searchText[i].ToString();
+					// Build inferred table only for the first match
+					if(sampleTable == null) {
+						sampleTable = new();
+						for(int i = 0; i < searchText.Length; i++) {
+							sampleTable["$" + memory[offset + i].ToString("X2")] = searchText[i].ToString();
+						}
 					}
 
-					matches.Add(new RelativeSearchMatchEntry {
-						Address = "$" + (start + offset).ToString("X4"),
-						FirstByte = "$" + firstByte.ToString("X2"),
-						BaseOffset = baseOffset,
-						InferredTable = inferredTable
-					});
+					matchLines.Append('$').Append((start + offset).ToString("X4"))
+						.Append(" first=$").Append(firstByte.ToString("X2"))
+						.Append(" offset=").AppendLine(baseOffset.ToString());
+					matchCount++;
 				}
 			}
 
-			return McpToolHelper.Serialize(new RelativeSearchResponse {
-				SearchText = searchText,
-				SignatureDescription = string.Join(", ", signature.Select(d => (d >= 0 ? "+" : "") + d)),
-				MatchCount = matches.Count,
-				Matches = matches,
-				Tip = matches.Count > 20
-					? "Too many results. Use a longer search string (6+ chars) or specify a narrower address range."
-					: matches.Count == 0
-						? "No matches. Try: 1) different case (all UPPER or all lower), 2) the text may use DTE/MTE compression, 3) try a different memory type."
-						: ""
-			});
+			string sig = string.Join(", ", signature.Select(d => (d >= 0 ? "+" : "") + d));
+			StringBuilder result = new();
+			result.Append("Search: '").Append(searchText).Append("'  Signature: ").Append(sig)
+				.Append("  Matches: ").AppendLine(matchCount.ToString());
+			result.Append(matchLines);
+
+			if(sampleTable != null) {
+				result.Append("Table: ");
+				bool first = true;
+				foreach(var kv in sampleTable) {
+					if(!first) result.Append(' ');
+					result.Append(kv.Key).Append('=').Append(kv.Value);
+					first = false;
+				}
+				result.AppendLine();
+			}
+
+			string tip = matchCount > 20
+				? "Too many results. Use a longer search string (6+ chars) or specify a narrower address range."
+				: matchCount == 0
+					? "No matches. Try: 1) different case (all UPPER or all lower), 2) the text may use DTE/MTE compression, 3) try a different memory type."
+					: "";
+			if(!string.IsNullOrEmpty(tip)) {
+				result.Append(tip);
+			}
+
+			return result.ToString();
 		}
 
 		[McpServerTool(Name = "mesen_load_tbl", ReadOnly = false, Destructive = false, OpenWorld = false),
@@ -117,21 +135,15 @@ namespace Mesen.Mcp.Tools
 				throw new McpException("No valid entries found in TBL");
 			}
 
-			// Store in the static table cache (thread-safe swap)
-			lock(_tblLock) {
-				_currentTbl = byteToChar;
-				_currentTblReverse = charToByte;
-				_currentTblMaxKeyLen = maxKeyLength;
-			}
+			// Atomic swap of immutable snapshot
+			_tblState = new TblState(byteToChar, charToByte, maxKeyLength);
 
-			return McpToolHelper.Serialize(new LoadTblResponse {
-				Success = true,
-				Source = isFile ? tblPathOrContent : "(inline content)",
-				EntryCount = byteToChar.Count,
-				MaxByteSequenceLength = maxKeyLength,
-				SampleEntries = byteToChar.Take(20).Select(kv => kv.Key + " = " + kv.Value).ToList(),
-				ParseErrors = errors
-			});
+			string source = isFile ? tblPathOrContent : "(inline content)";
+			string result = "TBL loaded: " + source + " (" + byteToChar.Count + " entries, max key " + maxKeyLength + " bytes)";
+			if(errors.Count > 0) {
+				result += "\nWarnings:\n" + string.Join("\n", errors);
+			}
+			return result;
 		}
 
 		[McpServerTool(Name = "mesen_search_text", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
@@ -145,7 +157,8 @@ namespace Mesen.Mcp.Tools
 		{
 			McpToolHelper.EnsureDebuggerReady();
 
-			if(_currentTblReverse == null || _currentTblReverse.Count == 0) {
+			TblState? tbl = _tblState;
+			if(tbl == null || tbl.CharToByte.Count == 0) {
 				throw new McpException("No TBL loaded. Call mesen_load_tbl first.");
 			}
 
@@ -160,7 +173,7 @@ namespace Mesen.Mcp.Tools
 				// Try longest match first (for multi-char -> single-byte DTE entries)
 				for(int len = Math.Min(text.Length - i, 10); len >= 1; len--) {
 					string substr = text.Substring(i, len);
-					if(_currentTblReverse.TryGetValue(substr, out string? hexBytes)) {
+					if(tbl.CharToByte.TryGetValue(substr, out string? hexBytes)) {
 						// Parse the hex bytes
 						for(int b = 0; b < hexBytes.Length; b += 2) {
 							encodedBytes.Add(byte.Parse(hexBytes.Substring(b, 2), System.Globalization.NumberStyles.HexNumber));
@@ -209,12 +222,11 @@ namespace Mesen.Mcp.Tools
 				}
 			}
 
-			return McpToolHelper.Serialize(new SearchTextResponse {
-				SearchText = text,
-				EncodedPattern = string.Join(" ", pattern.Select(b => b.ToString("X2"))),
-				MatchCount = matchAddresses.Count,
-				Addresses = matchAddresses
-			});
+			string encodedPattern = string.Join(" ", pattern.Select(b => b.ToString("X2")));
+			if(matchAddresses.Count == 0) {
+				return "'" + text + "' encoded as " + encodedPattern + ". No matches.";
+			}
+			return "'" + text + "' encoded as " + encodedPattern + ". " + matchAddresses.Count + " matches: " + string.Join(" ", matchAddresses);
 		}
 
 		[McpServerTool(Name = "mesen_decode_text", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
@@ -227,7 +239,8 @@ namespace Mesen.Mcp.Tools
 		{
 			McpToolHelper.EnsureDebuggerReady();
 
-			if(_currentTbl == null || _currentTbl.Count == 0) {
+			TblState? tbl = _tblState;
+			if(tbl == null || tbl.ByteToChar.Count == 0) {
 				throw new McpException("No TBL loaded. Call mesen_load_tbl first.");
 			}
 
@@ -252,13 +265,11 @@ namespace Mesen.Mcp.Tools
 			byte[] data = DebugApi.GetMemoryValues(memType, addr, (uint)(addr + length - 1));
 
 			StringBuilder decoded = new();
-			StringBuilder hexUsed = new();
 			int bytesConsumed = 0;
 
 			int pos = 0;
 			while(pos < data.Length) {
 				if(endByte.HasValue && data[pos] == endByte.Value) {
-					hexUsed.Append(data[pos].ToString("X2")).Append(' ');
 					decoded.Append("<END>");
 					bytesConsumed = pos + 1;
 					break;
@@ -266,7 +277,7 @@ namespace Mesen.Mcp.Tools
 
 				bool mapped = false;
 				// Try longest byte sequence first
-				for(int keyLen = _currentTblMaxKeyLen; keyLen >= 1; keyLen--) {
+				for(int keyLen = tbl.MaxKeyLength; keyLen >= 1; keyLen--) {
 					if(pos + keyLen > data.Length) continue;
 
 					StringBuilder keyBuilder = new();
@@ -275,9 +286,8 @@ namespace Mesen.Mcp.Tools
 					}
 					string key = keyBuilder.ToString().ToUpperInvariant();
 
-					if(_currentTbl.TryGetValue(key, out string? character)) {
+					if(tbl.ByteToChar.TryGetValue(key, out string? character)) {
 						decoded.Append(character);
-						hexUsed.Append(key).Append(' ');
 						pos += keyLen;
 						mapped = true;
 						break;
@@ -286,42 +296,44 @@ namespace Mesen.Mcp.Tools
 
 				if(!mapped) {
 					decoded.Append($"[${data[pos]:X2}]");
-					hexUsed.Append(data[pos].ToString("X2")).Append(' ');
 					pos++;
 				}
 
 				bytesConsumed = pos;
 			}
 
-			return McpToolHelper.Serialize(new DecodeTextResponse {
-				StartAddress = "$" + addr.ToString("X4"),
-				BytesConsumed = bytesConsumed,
-				DecodedText = decoded.ToString(),
-				RawHex = hexUsed.ToString().Trim()
-			});
+			return bytesConsumed + " bytes: " + decoded;
 		}
 
 		[McpServerTool(Name = "mesen_get_tbl_info", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
 		 Description("Get info about the currently loaded TBL (character table). Shows all mappings.")]
 		public static string GetTblInfo()
 		{
-			if(_currentTbl == null || _currentTbl.Count == 0) {
+			TblState? tbl = _tblState;
+			if(tbl == null || tbl.ByteToChar.Count == 0) {
 				throw new McpException("No TBL loaded");
 			}
 
-			return McpToolHelper.Serialize(new TblInfoResponse {
-				Loaded = true,
-				EntryCount = _currentTbl.Count,
-				MaxByteSequenceLength = _currentTblMaxKeyLen,
-				Mappings = _currentTbl.Select(kv => new TblMappingEntry { Hex = kv.Key, Character = kv.Value }).ToList()
-			});
+			string mappings = string.Join(",", tbl.ByteToChar.Select(kv => kv.Key + "=" + kv.Value));
+			return "TBL: " + tbl.ByteToChar.Count + " entries (max key " + tbl.MaxKeyLength + " bytes)\n" + mappings;
 		}
 
-		// --- TBL state ---
-		private static readonly object _tblLock = new();
-		private static Dictionary<string, string>? _currentTbl;
-		private static Dictionary<string, string>? _currentTblReverse;
-		private static int _currentTblMaxKeyLen = 1;
+		// --- TBL state (immutable snapshot swapped atomically) ---
+		private sealed class TblState
+		{
+			public readonly Dictionary<string, string> ByteToChar;
+			public readonly Dictionary<string, string> CharToByte;
+			public readonly int MaxKeyLength;
+
+			public TblState(Dictionary<string, string> byteToChar, Dictionary<string, string> charToByte, int maxKeyLength)
+			{
+				ByteToChar = byteToChar;
+				CharToByte = charToByte;
+				MaxKeyLength = maxKeyLength;
+			}
+		}
+
+		private static volatile TblState? _tblState;
 
 		private static void ParseTbl(string content, out Dictionary<string, string> byteToChar, out Dictionary<string, string> charToByte, out int maxKeyLength, out List<string> errors)
 		{

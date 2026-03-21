@@ -1,5 +1,4 @@
 using Mesen.Interop;
-using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -26,22 +25,15 @@ namespace Mesen.Mcp.Tools
 		{
 			switch(action.ToLowerInvariant()) {
 				case "check":
-					return McpToolHelper.Serialize(new HistoryEnabledResponse {
-						Enabled = HistoryApi.HistoryViewerEnabled()
-					});
+					return "History: " + (HistoryApi.HistoryViewerEnabled() ? "enabled" : "disabled");
 
 				case "get":
 					EnsureHistoryEnabled();
 
 					HistoryViewerState state = HistoryApi.HistoryViewerGetState();
-					return McpToolHelper.Serialize(new HistoryStateResponse {
-						Position = state.Position,
-						Length = state.Length,
-						IsPaused = state.IsPaused,
-						Fps = Math.Round(state.Fps, 2),
-						Volume = state.Volume,
-						SegmentCount = state.SegmentCount
-					});
+					return "Position=" + state.Position + "/" + state.Length +
+						" paused=" + state.IsPaused + " fps=" + Math.Round(state.Fps, 2) +
+						" volume=" + state.Volume + " segments=" + state.SegmentCount;
 
 				case "set_options":
 					EnsureHistoryEnabled();
@@ -52,11 +44,7 @@ namespace Mesen.Mcp.Tools
 					};
 
 					HistoryApi.HistoryViewerSetOptions(options);
-					return McpToolHelper.Serialize(new HistorySetOptionsResponse {
-						Success = true,
-						IsPaused = isPaused,
-						Volume = volume
-					});
+					return "History options set.";
 
 				default:
 					throw new McpException("Invalid action: " + action + ". Use 'check', 'get', or 'set_options'.");
@@ -74,19 +62,11 @@ namespace Mesen.Mcp.Tools
 			switch(action.ToLowerInvariant()) {
 				case "seek":
 					HistoryApi.HistoryViewerSetPosition((uint)position);
-					return McpToolHelper.Serialize(new HistoryNavigateResponse {
-						Success = true,
-						Action = "seek",
-						Position = position
-					});
+					return "Seeked to position " + position;
 
 				case "resume":
 					HistoryApi.HistoryViewerResumeGameplay((uint)position);
-					return McpToolHelper.Serialize(new HistoryNavigateResponse {
-						Success = true,
-						Action = "resume",
-						Position = position
-					});
+					return "Resumed from position " + position;
 
 				default:
 					throw new McpException("Invalid action: " + action + ". Use 'seek' or 'resume'.");
@@ -106,23 +86,14 @@ namespace Mesen.Mcp.Tools
 			switch(action.ToLowerInvariant()) {
 				case "save_state": {
 					bool success = HistoryApi.HistoryViewerCreateSaveState(filepath, (uint)position);
-					return McpToolHelper.Serialize(new HistorySaveStateResponse {
-						Success = success,
-						Action = "save_state",
-						File = filepath,
-						Position = position
-					});
+					if(!success) throw new McpException("Failed to save state at position " + position);
+					return "State saved at position " + position + ": " + filepath;
 				}
 
 				case "save_movie": {
 					bool success = HistoryApi.HistoryViewerSaveMovie(filepath, (uint)position, (uint)endPosition);
-					return McpToolHelper.Serialize(new HistorySaveMovieResponse {
-						Success = success,
-						Action = "save_movie",
-						File = filepath,
-						StartPosition = position,
-						EndPosition = endPosition
-					});
+					if(!success) throw new McpException("Failed to save movie.");
+					return "Movie saved (" + position + "-" + endPosition + "): " + filepath;
 				}
 
 				default:

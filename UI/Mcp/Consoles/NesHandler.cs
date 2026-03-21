@@ -4,7 +4,7 @@ using Mesen.Mcp.Models;
 using Mesen.Mcp.Tools;
 using System;
 using System.Collections.Generic;
-using System.Text;
+
 
 namespace Mesen.Mcp.Consoles
 {
@@ -70,24 +70,15 @@ namespace Mesen.Mcp.Consoles
 			string mirroring = (header[6] & 0x08) != 0 ? "FourScreen"
 				: (header[6] & 0x01) != 0 ? "Vertical" : "Horizontal";
 
-			StringBuilder raw = new();
-			for(int i = 0; i < 16 && i < header.Length; i++) {
-				if(i > 0) raw.Append(' ');
-				raw.Append(header[i].ToString("X2"));
-			}
-
 			return McpToolHelper.Serialize(new NesRomHeaderResponse {
 				Format = isNes2 ? "NES 2.0" : "iNes",
 				Mapper = mapper,
 				SubMapper = subMapper > 0 ? subMapper : null,
 				PrgRomSize = prgSize,
-				PrgRomSizeKB = prgSize / 1024,
 				ChrRomSize = chrSize,
-				ChrRomSizeKB = chrSize / 1024,
 				Mirroring = mirroring,
 				Battery = (header[6] & 0x02) != 0,
-				Trainer = (header[6] & 0x04) != 0,
-				RawBytes = raw.ToString()
+				Trainer = (header[6] & 0x04) != 0
 			});
 		}
 	}

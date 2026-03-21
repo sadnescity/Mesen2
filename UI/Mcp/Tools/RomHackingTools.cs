@@ -1,6 +1,5 @@
 using Mesen.Interop;
 using Mesen.Mcp.Consoles;
-using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
@@ -27,11 +26,8 @@ namespace Mesen.Mcp.Tools
 			}
 
 			bool success = DebugApi.SaveRomToDisk(filepath, saveAsIps, strip);
-			return McpToolHelper.Serialize(new SaveRomResponse {
-				Success = success,
-				File = filepath,
-				SaveAsIps = saveAsIps
-			});
+			if(!success) throw new McpException("Failed to save ROM.");
+			return (saveAsIps ? "IPS patch" : "ROM") + " saved to " + filepath;
 		}
 
 		[McpServerTool(Name = "mesen_get_rom_header", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
@@ -61,26 +57,20 @@ namespace Mesen.Mcp.Tools
 
 			DebugPaletteInfo info = DebugApi.GetPaletteInfo(cpu);
 			UInt32[] rgbPalette = info.GetRgbPalette();
-			UInt32[] rawPalette = info.GetRawPalette();
 
-			List<PaletteColorEntry> colors = new();
+			StringBuilder sb = new();
+			sb.Append("Colors=").Append(info.ColorCount)
+				.Append(" BG=").Append(info.BgColorCount)
+				.Append(" Sprite=").Append(info.SpriteColorCount)
+				.Append(" PerPalette=").Append(info.ColorsPerPalette)
+				.Append(" Format=").AppendLine(info.RawFormat.ToString());
+
 			for(int i = 0; i < rgbPalette.Length; i++) {
-				UInt32 rgb = rgbPalette[i];
-				colors.Add(new PaletteColorEntry {
-					Index = i,
-					Rgb = "#" + (rgb & 0xFFFFFF).ToString("X6"),
-					Raw = "$" + rawPalette[i].ToString("X4")
-				});
+				if(i > 0) sb.Append(' ');
+				sb.Append((rgbPalette[i] & 0xFFFFFF).ToString("X6"));
 			}
 
-			return McpToolHelper.Serialize(new PaletteInfoResponse {
-				ColorCount = info.ColorCount,
-				BgColorCount = info.BgColorCount,
-				SpriteColorCount = info.SpriteColorCount,
-				ColorsPerPalette = info.ColorsPerPalette,
-				RawFormat = info.RawFormat.ToString(),
-				Colors = colors
-			});
+			return sb.ToString();
 		}
 
 		[McpServerTool(Name = "mesen_set_palette_color", ReadOnly = false, Destructive = false, OpenWorld = false), Description("Set a palette color at runtime.")]
@@ -102,11 +92,7 @@ namespace Mesen.Mcp.Tools
 			color |= 0xFF000000;
 
 			DebugApi.SetPaletteColor(cpu, colorIndex, color);
-			return McpToolHelper.Serialize(new SetPaletteColorResponse {
-				Success = true,
-				ColorIndex = colorIndex,
-				Color = "#" + (color & 0xFFFFFF).ToString("X6")
-			});
+			return "Color " + colorIndex + " set to #" + (color & 0xFFFFFF).ToString("X6");
 		}
 
 		[McpServerTool(Name = "mesen_get_tile_pixel", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description("Read a single pixel from a tile in memory.")]
@@ -130,12 +116,7 @@ namespace Mesen.Mcp.Tools
 			AddressInfo addressInfo = new() { Address = (int)addr, Type = memType };
 			int pixel = DebugApi.GetTilePixel(addressInfo, tileFormat, x, y);
 
-			return McpToolHelper.Serialize(new GetTilePixelResponse {
-				TileAddress = "$" + addr.ToString("X4"),
-				X = x,
-				Y = y,
-				ColorIndex = pixel
-			});
+			return "Color index: " + pixel;
 		}
 
 		[McpServerTool(Name = "mesen_set_tile_pixel", ReadOnly = false, Destructive = false, OpenWorld = false), Description("Set a single pixel in a tile in memory.")]
@@ -160,13 +141,7 @@ namespace Mesen.Mcp.Tools
 			AddressInfo addressInfo = new() { Address = (int)addr, Type = memType };
 			DebugApi.SetTilePixel(addressInfo, tileFormat, x, y, color);
 
-			return McpToolHelper.Serialize(new SetTilePixelResponse {
-				Success = true,
-				TileAddress = "$" + addr.ToString("X4"),
-				X = x,
-				Y = y,
-				ColorIndex = color
-			});
+			return "Pixel set to color " + color;
 		}
 
 		[McpServerTool(Name = "mesen_run_lua_script", ReadOnly = false, Destructive = false, OpenWorld = false), Description("Run a Lua script in the emulator and return its log output. Set persistent=true to keep the script running (e.g. for callback-based scripts); use mesen_remove_lua_script to stop it later.")]
@@ -189,14 +164,10 @@ namespace Mesen.Mcp.Tools
 
 			if(!persistent) {
 				DebugApi.RemoveScript(scriptId);
+				return string.IsNullOrEmpty(log) ? "(no output)" : log;
 			}
 
-			return McpToolHelper.Serialize(new RunLuaScriptResponse {
-				Success = true,
-				ScriptId = scriptId,
-				Persistent = persistent,
-				Log = log
-			});
+			return "Script #" + scriptId + " running (persistent)." + (string.IsNullOrEmpty(log) ? "" : "\n" + log);
 		}
 
 		[McpServerTool(Name = "mesen_remove_lua_script", ReadOnly = false, Destructive = false, OpenWorld = false), Description("Remove a running Lua script by its script ID (returned by mesen_run_lua_script with persistent=true).")]
@@ -208,11 +179,7 @@ namespace Mesen.Mcp.Tools
 			string log = DebugApi.GetScriptLog(scriptId);
 			DebugApi.RemoveScript(scriptId);
 
-			return McpToolHelper.Serialize(new RemoveLuaScriptResponse {
-				Success = true,
-				ScriptId = scriptId,
-				Log = log
-			});
+			return string.IsNullOrEmpty(log) ? "Script #" + scriptId + " removed." : log;
 		}
 
 		[McpServerTool(Name = "mesen_set_cheats", ReadOnly = false, Destructive = false, OpenWorld = false), Description("Set cheat codes. Each code is in the format 'Type:Code' (e.g. 'NesGameGenie:SXIOPO', 'SnesProActionReplay:7E0DBF01').")]
@@ -246,11 +213,11 @@ namespace Mesen.Mcp.Tools
 				EmuApi.SetCheats(cheats.ToArray(), (UInt32)cheats.Count);
 			}
 
-			return McpToolHelper.Serialize(new SetCheatsResponse {
-				Success = errors.Count == 0,
-				CheatsApplied = cheats.Count,
-				Errors = errors
-			});
+			string result = cheats.Count + " cheats applied.";
+			if(errors.Count > 0) {
+				result += "\nErrors:\n" + string.Join("\n", errors);
+			}
+			return result;
 		}
 
 		[McpServerTool(Name = "mesen_clear_cheats", ReadOnly = false, Destructive = true, OpenWorld = false), Description("Clear all active cheat codes.")]
@@ -259,7 +226,7 @@ namespace Mesen.Mcp.Tools
 			McpToolHelper.EnsureRunning();
 
 			EmuApi.ClearCheats();
-			return McpToolHelper.Serialize(new SuccessResponse { Success = true });
+			return "Cheats cleared.";
 		}
 
 	}

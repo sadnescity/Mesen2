@@ -135,12 +135,6 @@ namespace Mesen.Mcp.Consoles
 			string region = DecodeRegion(destinationCode);
 			string romTypeName = DecodeRomType(romType);
 
-			StringBuilder raw = new();
-			for(int i = 0; i < CartInfoSize && o + i < prgRom.Length; i++) {
-				if(i > 0) raw.Append(' ');
-				raw.Append(prgRom[o + i].ToString("X2"));
-			}
-
 			return McpToolHelper.Serialize(new SnesRomHeaderResponse {
 				Title = title,
 				MapMode = "$" + mapMode.ToString("X2"),
@@ -159,8 +153,7 @@ namespace Mesen.Mcp.Consoles
 				Checksum = "$" + checksum.ToString("X4"),
 				ChecksumComplement = "$" + checksumComplement.ToString("X4"),
 				ChecksumValid = (checksum + checksumComplement) == 0xFFFF,
-				HeaderOffset = "$" + headerOffset.ToString("X6"),
-				RawBytes = raw.ToString()
+				HeaderOffset = "$" + headerOffset.ToString("X6")
 			});
 		}
 
