@@ -330,6 +330,7 @@ namespace Mesen.Windows
 			switch(e.NotificationType) {
 				case ConsoleNotificationType.GameLoaded:
 					CheatCodes.ApplyCheats();
+					MesenMcpServer.Instance.OnRomLoaded();
 					RomInfo romInfo = EmuApi.GetRomInfo();
 
 					Dispatcher.UIThread.Post(() => {

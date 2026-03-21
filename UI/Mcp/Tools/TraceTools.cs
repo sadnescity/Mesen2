@@ -1,9 +1,7 @@
 using Mesen.Interop;
-using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Text;
@@ -26,7 +24,7 @@ namespace Mesen.Mcp.Tools
 			McpToolHelper.EnsureDebuggerReady();
 			CpuType cpu = McpToolHelper.ParseCpuType(cpuType);
 
-			string traceFormat = format ?? GetDefaultTraceFormat(cpu);
+			string traceFormat = format ?? McpToolHelper.GetDefaultTraceFormat(cpu);
 
 			InteropTraceLoggerOptions options = new() {
 				Enabled = enabled,
@@ -41,12 +39,7 @@ namespace Mesen.Mcp.Tools
 
 			DebugApi.SetTraceOptions(cpu, options);
 
-			return McpToolHelper.Serialize(new SetTraceOptionsResponse {
-				Success = true,
-				CpuType = cpuType,
-				Enabled = enabled,
-				Format = traceFormat
-			});
+			return "Trace " + (enabled ? "enabled" : "disabled") + " for " + cpuType + ".";
 		}
 
 		[McpServerTool(Name = "mesen_get_execution_trace", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
@@ -66,41 +59,25 @@ namespace Mesen.Mcp.Tools
 			count = Math.Min(count, DebugApi.TraceLogBufferSize);
 			TraceRow[] rows = DebugApi.GetExecutionTrace(0, (uint)count);
 
+			bool showCpuType = !filterCpu.HasValue;
 			StringBuilder sb = new();
-			List<TraceLineEntry> traceLines = new();
 
 			foreach(TraceRow row in rows) {
 				if(filterCpu.HasValue && row.Type != filterCpu.Value) {
 					continue;
 				}
 
-				string output = row.GetOutput();
-				string byteCode = row.GetByteCodeStr();
-				string pc = "$" + row.ProgramCounter.ToString("X4");
-
-				sb.Append("[").Append(row.Type).Append("] ").Append(pc).Append(": ").Append(output).AppendLine();
-
-				traceLines.Add(new TraceLineEntry {
-					CpuType = row.Type.ToString(),
-					Pc = pc,
-					ByteCode = byteCode,
-					Output = output
-				});
+				if(showCpuType) {
+					sb.Append('[').Append(row.Type).Append("] ");
+				}
+				sb.Append('$').Append(row.ProgramCounter.ToString("X4")).Append(": ").AppendLine(row.GetOutput());
 			}
 
+			string text = sb.ToString();
 			if(!string.IsNullOrEmpty(outputFile)) {
-				File.WriteAllText(outputFile, sb.ToString());
-				return McpToolHelper.Serialize(new FileOutputResponse {
-					Success = true,
-					File = outputFile,
-					LineCount = traceLines.Count
-				});
+				File.WriteAllText(outputFile, text);
 			}
-
-			return McpToolHelper.Serialize(new ExecutionTraceResponse {
-				LineCount = traceLines.Count,
-				Trace = traceLines
-			});
+			return text;
 		}
 
 		[McpServerTool(Name = "mesen_clear_execution_trace", ReadOnly = false, Destructive = true, OpenWorld = false),
@@ -110,7 +87,7 @@ namespace Mesen.Mcp.Tools
 			McpToolHelper.EnsureDebuggerReady();
 
 			DebugApi.ClearExecutionTrace();
-			return McpToolHelper.Serialize(new SuccessResponse { Success = true });
+			return "Trace cleared.";
 		}
 
 		[McpServerTool(Name = "mesen_trace_file", ReadOnly = false, Destructive = false, OpenWorld = false),
@@ -127,18 +104,11 @@ namespace Mesen.Mcp.Tools
 						throw new McpException("File path is required when action is 'start'.");
 					}
 					DebugApi.StartLogTraceToFile(filepath);
-					return McpToolHelper.Serialize(new SuccessActionFileResponse {
-						Success = true,
-						Action = "start",
-						File = filepath
-					});
+					return "Trace logging to " + filepath;
 
 				case "stop":
 					DebugApi.StopLogTraceToFile();
-					return McpToolHelper.Serialize(new SuccessActionResponse {
-						Success = true,
-						Action = "stop"
-					});
+					return "Trace logging stopped.";
 
 				default:
 					throw new McpException("Invalid action: " + action + ". Use 'start' or 'stop'.");
@@ -160,76 +130,38 @@ namespace Mesen.Mcp.Tools
 					ProfiledFunction[] buffer = new ProfiledFunction[100000];
 					int count = DebugApi.GetProfilerData(cpu, ref buffer);
 
-					List<ProfiledFunctionEntry> functions = new();
 					StringBuilder sb = new();
-
 					for(int i = 0; i < count; i++) {
 						ProfiledFunction f = buffer[i];
 						if(f.CallCount == 0) {
 							continue;
 						}
 
-						string addrStr = "$" + f.Address.Address.ToString("X4");
-						string memType = f.Address.Type.ToString();
-
-						functions.Add(new ProfiledFunctionEntry {
-							Address = addrStr,
-							MemoryType = memType,
-							CallCount = f.CallCount,
-							InclusiveCycles = f.InclusiveCycles,
-							ExclusiveCycles = f.ExclusiveCycles,
-							MinCycles = f.MinCycles,
-							MaxCycles = f.MaxCycles,
-							AvgCycles = f.GetAvgCycles(),
-							Flags = f.Flags.ToString()
-						});
-
-						sb.Append(addrStr).Append(" (").Append(memType).Append(")")
-							.Append("  calls=").Append(f.CallCount)
-							.Append("  incl=").Append(f.InclusiveCycles)
-							.Append("  excl=").Append(f.ExclusiveCycles)
-							.Append("  avg=").Append(f.GetAvgCycles())
+						sb.Append('$').Append(f.Address.Address.ToString("X4"))
+							.Append(' ').Append(f.Address.Type)
+							.Append(" calls=").Append(f.CallCount)
+							.Append(" incl=").Append(f.InclusiveCycles)
+							.Append(" excl=").Append(f.ExclusiveCycles)
+							.Append(" min=").Append(f.MinCycles)
+							.Append(" max=").Append(f.MaxCycles)
 							.AppendLine();
 					}
 
+					string text = sb.ToString();
 					if(!string.IsNullOrEmpty(outputFile)) {
-						File.WriteAllText(outputFile, sb.ToString());
-						return McpToolHelper.Serialize(new FileOutputResponse {
-							Success = true,
-							File = outputFile,
-							LineCount = functions.Count
-						});
+						File.WriteAllText(outputFile, text);
 					}
-
-					return McpToolHelper.Serialize(new ProfilerDataResponse {
-						FunctionCount = functions.Count,
-						Functions = functions
-					});
+					return text;
 				}
 
 				case "reset":
 					DebugApi.ResetProfiler(cpu);
-					return McpToolHelper.Serialize(new SuccessResponse { Success = true });
+					return "Profiler reset.";
 
 				default:
 					throw new McpException("Invalid action: " + action + ". Use 'get' or 'reset'.");
 			}
 		}
 
-		private static string GetDefaultTraceFormat(CpuType cpuType)
-		{
-			return cpuType switch {
-				CpuType.Snes or CpuType.Sa1 =>
-					"[Disassembly][Align,24] A:[A,4h] X:[X,4h] Y:[Y,4h] S:[SP,4h] D:[D,4h] DB:[DB,2h] P:[P,8]",
-				CpuType.Nes =>
-					"[Disassembly][Align,24] A:[A,2h] X:[X,2h] Y:[Y,2h] S:[SP,2h] P:[P,8]",
-				CpuType.Gameboy =>
-					"[Disassembly][Align,24] A:[A,2h] B:[B,2h] C:[C,2h] D:[D,2h] E:[E,2h] F:[F,2h] H:[H,2h] L:[L,2h] SP:[SP,4h]",
-				CpuType.Gba =>
-					"[Disassembly][Align,42] ",
-				_ =>
-					"[Disassembly][Align,24] "
-			};
 		}
-	}
 }

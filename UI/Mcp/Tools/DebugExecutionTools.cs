@@ -1,29 +1,18 @@
 using Mesen.Debugger;
 using Mesen.Interop;
 using Mesen.Mcp.Consoles;
-using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Text;
 
 namespace Mesen.Mcp.Tools
 {
 	[McpServerToolType]
 	public class DebugExecutionTools
 	{
-		[McpServerTool(Name = "mesen_init_debugger", ReadOnly = false, Destructive = false, OpenWorld = false),
-		 Description("Initialize the debugger. Must be called before using debug tools.")]
-		public static string InitDebugger()
-		{
-			McpToolHelper.EnsureRunning();
-
-			DebugApi.InitializeDebugger();
-			McpToolHelper.MarkDebuggerInitialized();
-			return McpToolHelper.Serialize(new SuccessResponse { Success = true });
-		}
-
 		[McpServerTool(Name = "mesen_step", ReadOnly = false, Destructive = false, OpenWorld = false),
 		 Description("Step the CPU by a number of instructions. Type can be 'Step', 'StepOver', 'StepOut', 'CpuCycleStep', 'PpuStep', 'PpuScanline', 'PpuFrame'.")]
 		public static string Step(
@@ -48,7 +37,7 @@ namespace Mesen.Mcp.Tools
 				elapsed += 5;
 			}
 
-			return GetCpuStateJson(cpu);
+			return GetCpuStateText(cpu);
 		}
 
 		[McpServerTool(Name = "mesen_resume_execution", ReadOnly = false, Destructive = false, OpenWorld = false),
@@ -58,17 +47,7 @@ namespace Mesen.Mcp.Tools
 			McpToolHelper.EnsureDebuggerReady();
 
 			DebugApi.ResumeExecution();
-			return McpToolHelper.Serialize(new SuccessResponse { Success = true });
-		}
-
-		[McpServerTool(Name = "mesen_is_execution_paused", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
-		 Description("Check if execution is paused (at a breakpoint or after a step).")]
-		public static string IsExecutionPaused()
-		{
-			return McpToolHelper.Serialize(new PausedStatusResponse {
-				Paused = EmuApi.IsPaused(),
-				Running = EmuApi.IsRunning()
-			});
+			return "Execution resumed.";
 		}
 
 		[McpServerTool(Name = "mesen_breakpoint", ReadOnly = false, Destructive = false, OpenWorld = false),
@@ -136,17 +115,15 @@ namespace Mesen.Mcp.Tools
 					BreakpointManager.AddCpuType(cpu);
 					BreakpointManager.AddBreakpoint(bp);
 
-					return McpToolHelper.Serialize(new BreakpointSetResponse {
-						Success = true,
-						Breakpoint = new BreakpointDetail {
-							StartAddress = "$" + addr.ToString("X4"),
-							EndAddress = "$" + endAddr.ToString("X4"),
-							Type = type,
-							MemoryType = memoryType,
-							CpuType = cpuType,
-							Condition = condition ?? ""
-						}
-					});
+					string summary = "Breakpoint set: $" + addr.ToString("X4");
+					if(endAddr != addr) {
+						summary += "-$" + endAddr.ToString("X4");
+					}
+					summary += " " + type + " on " + memoryType + " (" + cpuType + ")";
+					if(!string.IsNullOrEmpty(condition)) {
+						summary += " if " + condition;
+					}
+					return summary;
 				}
 
 				case "remove": {
@@ -173,43 +150,34 @@ namespace Mesen.Mcp.Tools
 					}
 
 					BreakpointManager.RemoveBreakpoint(target);
-					return McpToolHelper.Serialize(new BreakpointRemoveResponse {
-						Success = true,
-						Removed = new RemovedBreakpointInfo {
-							StartAddress = "$" + target.StartAddress.ToString("X4"),
-							EndAddress = "$" + target.EndAddress.ToString("X4"),
-							MemoryType = target.MemoryType.ToString()
-						}
-					});
+					return "Removed breakpoint at $" + target.StartAddress.ToString("X4") + " (" + target.MemoryType + ")";
 				}
 
 				case "remove_all": {
 					BreakpointManager.ClearBreakpoints();
-					return McpToolHelper.Serialize(new SuccessResponse { Success = true });
+					return "All breakpoints removed.";
 				}
 
 				case "list": {
-					List<BreakpointListEntry> bps = new();
+					StringBuilder sb = new();
 					int index = 0;
 					foreach(Breakpoint bp in BreakpointManager.Breakpoints) {
-						bps.Add(new BreakpointListEntry {
-							Index = index++,
-							Enabled = bp.Enabled,
-							StartAddress = "$" + bp.StartAddress.ToString("X4"),
-							EndAddress = "$" + bp.EndAddress.ToString("X4"),
-							MemoryType = bp.MemoryType.ToString(),
-							CpuType = bp.CpuType.ToString(),
-							BreakOnExec = bp.BreakOnExec,
-							BreakOnRead = bp.BreakOnRead,
-							BreakOnWrite = bp.BreakOnWrite,
-							Condition = bp.Condition
-						});
+						string rwx = (bp.BreakOnExec ? "X" : "-") + (bp.BreakOnRead ? "R" : "-") + (bp.BreakOnWrite ? "W" : "-");
+						sb.Append(index++).Append('\t')
+							.Append(bp.Enabled ? "on" : "off").Append('\t')
+							.Append('$').Append(bp.StartAddress.ToString("X4"));
+						if(bp.EndAddress != bp.StartAddress) {
+							sb.Append("-$").Append(bp.EndAddress.ToString("X4"));
+						}
+						sb.Append('\t').Append(bp.MemoryType)
+							.Append('\t').Append(bp.CpuType)
+							.Append('\t').Append(rwx);
+						if(!string.IsNullOrEmpty(bp.Condition)) {
+							sb.Append('\t').Append(bp.Condition);
+						}
+						sb.AppendLine();
 					}
-
-					return McpToolHelper.Serialize(new BreakpointListResponse {
-						Count = bps.Count,
-						Breakpoints = bps
-					});
+					return sb.Length > 0 ? sb.ToString() : "(no breakpoints)";
 				}
 
 				default:
@@ -228,7 +196,7 @@ namespace Mesen.Mcp.Tools
 
 			switch(component.ToLowerInvariant()) {
 				case "cpu":
-					return GetCpuStateJson(cpu);
+					return GetCpuStateText(cpu);
 
 				case "ppu": {
 					IConsoleHandler handler = ConsoleHandlerFactory.GetHandler(cpu);
@@ -251,7 +219,7 @@ namespace Mesen.Mcp.Tools
 			uint addr = McpToolHelper.ParseAddress(address);
 
 			DebugApi.SetProgramCounter(cpu, addr);
-			return McpToolHelper.Serialize(new SetPcResponse { Success = true, Pc = "$" + addr.ToString("X4") });
+			return "PC=$" + addr.ToString("X4");
 		}
 
 		[McpServerTool(Name = "mesen_get_callstack", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
@@ -263,17 +231,18 @@ namespace Mesen.Mcp.Tools
 			CpuType cpu = McpToolHelper.ParseCpuType(cpuType);
 
 			StackFrameInfo[] callstack = DebugApi.GetCallstack(cpu);
-			List<CallstackFrameEntry> frames = new();
+			StringBuilder sb = new();
 			foreach(StackFrameInfo frame in callstack) {
-				frames.Add(new CallstackFrameEntry {
-					Source = "$" + frame.Source.ToString("X4"),
-					Target = "$" + frame.Target.ToString("X4"),
-					ReturnAddress = "$" + frame.Return.ToString("X4"),
-					Flags = frame.Flags.ToString()
-				});
+				sb.Append('$').Append(frame.Source.ToString("X4"))
+					.Append(" -> $").Append(frame.Target.ToString("X4"))
+					.Append(" ret=$").Append(frame.Return.ToString("X4"));
+				string flags = frame.Flags.ToString();
+				if(flags != "None") {
+					sb.Append(' ').Append(flags);
+				}
+				sb.AppendLine();
 			}
-
-			return McpToolHelper.Serialize(new CallstackResponse { Callstack = frames });
+			return sb.Length > 0 ? sb.ToString() : "(empty)";
 		}
 
 		[McpServerTool(Name = "mesen_evaluate_expression", ReadOnly = true, Destructive = false, OpenWorld = false),
@@ -288,31 +257,29 @@ namespace Mesen.Mcp.Tools
 			EvalResultType resultType;
 			Int64 result = DebugApi.EvaluateExpression(expression, cpu, out resultType, true);
 
-			return McpToolHelper.Serialize(new EvalExpressionResponse {
-				Value = result,
-				Hex = "$" + result.ToString("X"),
-				ResultType = resultType.ToString()
-			});
+			return result + " ($" + result.ToString("X") + ")";
 		}
 
-		private static string GetCpuStateJson(CpuType cpu)
+		private static string GetCpuStateText(CpuType cpu)
 		{
 			UInt32 pc = DebugApi.GetProgramCounter(cpu, false);
 
-			Dictionary<string, string>? regs = null;
+			StringBuilder sb = new();
+			sb.Append(cpu).Append(" PC=$").Append(pc.ToString("X4"));
+
 			try {
 				IConsoleHandler handler = ConsoleHandlerFactory.GetHandler(cpu);
-				regs = handler.GetRegisters(cpu);
+				Dictionary<string, string>? regs = handler.GetRegisters(cpu);
+				if(regs != null) {
+					foreach(var kv in regs) {
+						sb.Append(' ').Append(kv.Key).Append('=').Append(kv.Value);
+					}
+				}
 			} catch {
 				// Register state not available
 			}
 
-			return McpToolHelper.Serialize(new CpuStateResponse {
-				CpuType = cpu.ToString(),
-				Pc = "$" + pc.ToString("X4"),
-				Paused = EmuApi.IsPaused(),
-				Registers = regs
-			});
+			return sb.ToString();
 		}
 
 	}

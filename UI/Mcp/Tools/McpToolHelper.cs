@@ -2,6 +2,7 @@ using Mesen.Interop;
 using Mesen.Mcp.Models;
 using ModelContextProtocol;
 using System;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
@@ -21,6 +22,48 @@ namespace Mesen.Mcp.Tools
 			_debuggerInitialized = true;
 		}
 
+		public static void EnableDefaultTracing()
+		{
+			if(!EmuApi.IsRunning()) return;
+
+			RomInfo info = EmuApi.GetRomInfo();
+			CpuType mainCpu = info.ConsoleType.GetMainCpuType();
+			EnableTracingForCpu(mainCpu);
+		}
+
+		public static void EnableTracingForCpu(CpuType cpu)
+		{
+			string format = GetDefaultTraceFormat(cpu);
+
+			InteropTraceLoggerOptions options = new() {
+				Enabled = true,
+				UseLabels = true,
+				IndentCode = false,
+				Format = Encoding.UTF8.GetBytes(format),
+				Condition = Encoding.UTF8.GetBytes("")
+			};
+			Array.Resize(ref options.Format, 1000);
+			Array.Resize(ref options.Condition, 1000);
+
+			DebugApi.SetTraceOptions(cpu, options);
+		}
+
+		public static string GetDefaultTraceFormat(CpuType cpuType)
+		{
+			return cpuType switch {
+				CpuType.Snes or CpuType.Sa1 =>
+					"[Disassembly][Align,24] A:[A,4h] X:[X,4h] Y:[Y,4h] S:[SP,4h] D:[D,4h] DB:[DB,2h] P:[P,8]",
+				CpuType.Nes =>
+					"[Disassembly][Align,24] A:[A,2h] X:[X,2h] Y:[Y,2h] S:[SP,2h] P:[P,8]",
+				CpuType.Gameboy =>
+					"[Disassembly][Align,24] A:[A,2h] B:[B,2h] C:[C,2h] D:[D,2h] E:[E,2h] F:[F,2h] H:[H,2h] L:[L,2h] SP:[SP,4h]",
+				CpuType.Gba =>
+					"[Disassembly][Align,42] ",
+				_ =>
+					"[Disassembly][Align,24] "
+			};
+		}
+
 		public static string Serialize<T>(T value)
 		{
 			JsonTypeInfo<T>? typeInfo = McpJsonContext.Default.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>;
@@ -32,8 +75,13 @@ namespace Mesen.Mcp.Tools
 
 		public static void EnsureDebuggerReady()
 		{
-			if(!_debuggerInitialized || !EmuApi.IsRunning()) {
-				throw new McpException("Debugger not initialized. Call mesen_init_debugger first.");
+			if(!EmuApi.IsRunning()) {
+				throw new McpException("No ROM loaded.");
+			}
+			if(!_debuggerInitialized) {
+				DebugApi.InitializeDebugger();
+				_debuggerInitialized = true;
+				EnableDefaultTracing();
 			}
 		}
 
