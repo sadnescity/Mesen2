@@ -1,0 +1,61 @@
+# Publishes a release from the mcp branch, using the artifacts that upstream's
+# "Build Mesen" workflow already produced.
+#
+# This lives in its own file on purpose. The MCP patch set is rebased onto
+# MesenCE whenever upstream moves, and every line we add to build.yml is a
+# conflict we pay for at each rebase -- the three CI commits carried over from
+# the Mesen2 era had to be dropped for exactly that reason. A workflow_run
+# trigger costs nothing at rebase time because upstream never touches this file.
+name: MCP Release
+
+on:
+  workflow_run:
+    workflows: ["Build Mesen"]
+    types: [completed]
+
+jobs:
+  release:
+    name: Publish release
+    if: >-
+      github.event.workflow_run.head_branch == 'mcp' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts from the build run
+        uses: actions/download-artifact@v8
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts
+
+      - name: Name the assets
+        run: |
+          set -eu
+          mkdir -p release
+          find artifacts -type f -print0 | while IFS= read -r -d '' f; do
+            # Artifact directories are named like "Mesen (macOS - macos-15 - clang)".
+            variant=$(dirname "${f#artifacts/}")
+            variant=$(printf '%s' "$variant" | sed 's/^Mesen (//; s/)$//; s#/#-#g; s/[^A-Za-z0-9._-][^A-Za-z0-9._-]*/-/g; s/^-//; s/-$//')
+            cp "$f" "release/MesenCE-MCP-${variant}-$(basename "$f")"
+          done
+          ls -la release/
+
+      - name: Publish
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: latest
+          target_commitish: ${{ github.event.workflow_run.head_sha }}
+          name: MesenCE with MCP server
+          body: |
+            MesenCE built from the `mcp` branch, with the Model Context Protocol
+            debug server included (57 tools, Streamable HTTP on port 9100).
+
+            Enable it in the emulator: **Debug menu -> MCP Server -> Start Server**,
+            or set `EnableMCPServer = true` in `settings.json`.
+
+            Built from ${{ github.event.workflow_run.head_sha }}.
+          prerelease: false
+          make_latest: true
+          files: release/*
