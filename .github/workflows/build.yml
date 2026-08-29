@@ -213,6 +213,13 @@ jobs:
           ENTITLEMENTS: UI/Mesen.entitlements
           SIGNING_IDENTITY: Mesen
         run: |
+          # Forks have no signing certificate in their secrets. Without this the
+          # step dies on an empty CERT_DATA, taking every macOS job with it -- and
+          # with them the release that needs their artifacts.
+          if [ -z "$CERT_DATA" ]; then
+            echo "No signing certificate configured; leaving the build unsigned."
+            exit 0
+          fi
           # Export certs
           echo "$CERT_DATA" | base64 --decode > /tmp/certs.p12
           # Create keychain
