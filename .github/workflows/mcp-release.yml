@@ -36,9 +36,22 @@ jobs:
           mkdir -p release
           find artifacts -type f -print0 | while IFS= read -r -d '' f; do
             # Artifact directories are named like "Mesen (macOS - macos-15 - clang)".
-            variant=$(dirname "${f#artifacts/}")
-            variant=$(printf '%s' "$variant" | sed 's/^Mesen (//; s/)$//; s#/#-#g; s/[^A-Za-z0-9._-][^A-Za-z0-9._-]*/-/g; s/^-//; s/-$//')
-            cp "$f" "release/MesenCE-MCP-${variant}-$(basename "$f")"
+            # What someone downloading needs is the platform and the architecture,
+            # so the runner labels are translated rather than pasted through.
+            v=$(dirname "${f#artifacts/}")
+            v="${v#Mesen (}"; v="${v%)}"
+            v="${v// - /-}"
+            v="${v//macos-15-intel/x64}"
+            v="${v//macos-15/arm64}"
+            v="${v//ubuntu-22.04-arm/arm64}"
+            v="${v//ubuntu-22.04/x64}"
+            v="${v//Linux ARM64/Linux-arm64}"
+            v="${v//Linux x64/Linux-x64}"
+            v="${v//net10.0-/}"; v="${v//net10.0/}"
+            v="${v//-AppImage/}"
+            v=$(printf '%s' "$v" | sed 's/[^A-Za-z0-9._-]\{1,\}/-/g; s/--*/-/g; s/^-//; s/-$//')
+            ext="${f##*/Mesen}"
+            cp "$f" "release/MesenCE-MCP-${v}${ext}"
           done
           ls -la release/
 
